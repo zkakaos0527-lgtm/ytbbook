@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MAX_TRANSLATION_SUBTITLES_PER_REQUEST } from "@/lib/translation";
 
 const { translateWithClaudeMock } = vi.hoisted(() => ({
   translateWithClaudeMock: vi.fn(),
@@ -46,10 +47,13 @@ describe("POST /api/translate", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        subtitles: Array.from({ length: 101 }, (_, index) => ({
+        subtitles: Array.from(
+          { length: MAX_TRANSLATION_SUBTITLES_PER_REQUEST + 1 },
+          (_, index) => ({
           id: `sub-${index + 1}`,
           text: `Sentence ${index + 1}`,
-        })),
+          }),
+        ),
       }),
     });
 
@@ -57,7 +61,9 @@ describe("POST /api/translate", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(413);
-    expect(payload.error).toContain("at most 100 subtitles");
+    expect(payload.error).toContain(
+      `at most ${MAX_TRANSLATION_SUBTITLES_PER_REQUEST} subtitles`,
+    );
     expect(translateWithClaudeMock).not.toHaveBeenCalled();
   });
 

@@ -9,6 +9,8 @@ import type {
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_MODEL = "deepseek-chat";
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite";
 const TRANSLATION_BATCH_SIZE = 50;
 const MERGE_BATCH_SIZE = 150;
 
@@ -151,6 +153,122 @@ export function parseTranslationResponse(content: string): TranslationResult[] {
   }));
 }
 
+function getTranslationProvider(): "deepseek" | "gemini" {
+  const configured = process.env.TRANSLATION_PROVIDER?.toLowerCase();
+
+  if (configured === "gemini" || configured === "deepseek") {
+    return configured;
+  }
+
+  return process.env.GEMINI_API_KEY ? "gemini" : "deepseek";
+}
+
+function getGeminiResponseText(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) {
+    return "";
+  }
+
+  const response = payload as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          text?: unknown;
+        }>;
+      };
+    }>;
+  };
+
+  return response.candidates?.[0]?.content?.parts
+    ?.map((part) => (typeof part.text === "string" ? part.text : ""))
+    .join("") ?? "";
+}
+
+async function translateBatchWithGemini(
+  subtitles: TranslationInputSubtitle[],
+): Promise<TranslationResult[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new ClaudeApiError(
+      "GEMINI_API_KEY is not configured in the environment.",
+      500,
+    );
+  }
+
+  const model = process.env.GEMINI_MODEL ?? GEMINI_DEFAULT_MODEL;
+  const response = await fetch(
+    `${GEMINI_BASE_URL}/models/${model}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `你是专业字幕翻译。将以下字幕逐句翻译为自然中文。
+要求：
+1. 保留每条字幕的 id，不要新增、删除或重排。
+2. 专业术语第一次出现时可保留英文原词。
+3. 直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"..."}。
+
+字幕：
+${JSON.stringify(subtitles)}`,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json",
+        },
+      }),
+      signal: AbortSignal.timeout(30000),
+    },
+  );
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new ClaudeApiError(
+      "Gemini failed to translate subtitles.",
+      response.status >= 400 && response.status < 500 ? response.status : 502,
+    );
+  }
+
+  const textContent = getGeminiResponseText(payload);
+  return parseTranslationResponse(textContent);
+}
+
+async function translateBatchWithDeepSeek(
+  subtitles: TranslationInputSubtitle[],
+): Promise<TranslationResult[]> {
+  const client = getDeepSeekClient();
+  const completion = await client.chat.completions.create({
+    model: DEEPSEEK_MODEL,
+    max_tokens: 4096,
+    temperature: 0.2,
+    messages: [
+      {
+        role: "system",
+        content:
+          '你是专业翻译。将以下字幕逐句翻译为中文。保持原文的语序和段落划分。专业术语附英文原词。直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"..."}。',
+      },
+      {
+        role: "user",
+        content: JSON.stringify(subtitles, null, 2),
+      },
+    ],
+  });
+
+  const textContent = completion.choices[0]?.message?.content ?? "";
+  return parseTranslationResponse(textContent);
+}
+
 export async function translateWithClaude(
   subtitles: TranslationInputSubtitle[],
 ): Promise<TranslationResult[]> {
@@ -158,30 +276,16 @@ export async function translateWithClaude(
     throw new ClaudeApiError("No subtitles were provided for translation.", 400);
   }
 
-  const client = getDeepSeekClient();
+  const provider = getTranslationProvider();
   const batches = buildTranslationBatches(subtitles);
   const translations: TranslationResult[] = [];
 
   for (const batch of batches) {
-    const completion = await client.chat.completions.create({
-      model: DEEPSEEK_MODEL,
-      max_tokens: 4096,
-      temperature: 0.2,
-      messages: [
-        {
-          role: "system",
-          content:
-            '你是专业翻译。将以下字幕逐句翻译为中文。保持原文的语序和段落划分。专业术语附英文原词。直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"..."}。',
-        },
-        {
-          role: "user",
-          content: JSON.stringify(batch, null, 2),
-        },
-      ],
-    });
-
-    const textContent = completion.choices[0]?.message?.content ?? "";
-    translations.push(...parseTranslationResponse(textContent));
+    translations.push(
+      ...(provider === "gemini"
+        ? await translateBatchWithGemini(batch)
+        : await translateBatchWithDeepSeek(batch)),
+    );
   }
 
   return translations;

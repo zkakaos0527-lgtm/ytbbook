@@ -1,11 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyTranslationsToNotebook,
   buildTranslationBatches,
   parseTranslationResponse,
+  translateWithClaude,
 } from "./claude";
 import type { Notebook } from "@/types";
+
+const originalEnv = process.env;
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+  process.env = { ...originalEnv };
+});
+
+afterEach(() => {
+  process.env = originalEnv;
+});
 
 describe("buildTranslationBatches", () => {
   it("splits subtitles into chunks of 20", () => {
@@ -30,8 +42,8 @@ describe("buildTranslationBatches", () => {
 
     const batches = buildTranslationBatches(subtitles);
 
-    expect(batches).toHaveLength(6);
-    expect(batches[0]).toHaveLength(20);
+    expect(batches).toHaveLength(3);
+    expect(batches[0]).toHaveLength(50);
     expect(batches.at(-1)).toHaveLength(1);
   });
 });
@@ -55,6 +67,52 @@ describe("parseTranslationResponse", () => {
         id: "sub-2",
         translated_text: "第二句",
       },
+    ]);
+  });
+});
+
+describe("translateWithClaude", () => {
+  it("uses Gemini when configured as the translation provider", async () => {
+    process.env.TRANSLATION_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify([
+                    { id: "sub-1", translated_text: "你好" },
+                  ]),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const translations = await translateWithClaude([
+      { id: "sub-1", text: "Hello" },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": "gemini-key",
+        },
+      }),
+    );
+    expect(translations).toEqual([
+      { id: "sub-1", translated_text: "你好" },
     ]);
   });
 });

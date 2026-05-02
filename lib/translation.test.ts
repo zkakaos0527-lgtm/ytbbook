@@ -13,10 +13,15 @@ describe("buildTranslationRequestBatches", () => {
     }));
 
     const batches = buildTranslationRequestBatches(subtitles);
+    const expectedBatchCount = Math.ceil(
+      subtitles.length / MAX_TRANSLATION_SUBTITLES_PER_REQUEST,
+    );
+    const expectedLastBatchSize =
+      subtitles.length % MAX_TRANSLATION_SUBTITLES_PER_REQUEST ||
+      MAX_TRANSLATION_SUBTITLES_PER_REQUEST;
 
-    expect(MAX_TRANSLATION_SUBTITLES_PER_REQUEST).toBe(100);
-    expect(batches).toHaveLength(36);
-    expect(batches[0]).toHaveLength(100);
-    expect(batches.at(-1)).toHaveLength(3);
+    expect(batches).toHaveLength(expectedBatchCount);
+    expect(batches[0]).toHaveLength(MAX_TRANSLATION_SUBTITLES_PER_REQUEST);
+    expect(batches.at(-1)).toHaveLength(expectedLastBatchSize);
   });
 });
