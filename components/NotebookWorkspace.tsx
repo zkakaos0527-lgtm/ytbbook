@@ -10,12 +10,14 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 import { applyTranslationsToNotebook } from "@/lib/claude";
 import { formatDuration } from "@/lib/format";
 import { notebookDetailMock } from "@/lib/mock-data";
+import { buildTranslationRequestBatches } from "@/lib/translation";
 import { createNotebookDraftFromTranscript } from "@/lib/workspace";
 import type {
   Notebook,
   SummarizeApiResponse,
   TranscriptApiResponse,
   TranslateApiResponse,
+  TranslationResult,
 } from "@/types";
 
 function isTranscriptApiResponse(
@@ -40,6 +42,7 @@ export function NotebookWorkspace() {
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [loadingPhase, setLoadingPhase] = useState<"idle" | "transcript" | "translation" | "summarizing">("idle");
+  const [translationProgress, setTranslationProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "export">("summary");
 
@@ -49,6 +52,7 @@ export function NotebookWorkspace() {
   async function handleSubmit(nextUrl: string) {
     setYoutubeUrl(nextUrl);
     setLoadingPhase("transcript");
+    setTranslationProgress(null);
     setError(null);
 
     try {
@@ -81,36 +85,54 @@ export function NotebookWorkspace() {
 
       setNotebook(draft);
       setLoadingPhase("translation");
+      setTranslationProgress({ done: 0, total: draft.subtitles.length });
 
       try {
-        const translateRes = await fetch("/api/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            subtitles: draft.subtitles.map((s) => ({ id: s.id, text: s.originalText })),
-          }),
-        });
+        const subtitleInputs = draft.subtitles.map((s) => ({
+          id: s.id,
+          text: s.originalText,
+        }));
+        const translationBatches = buildTranslationRequestBatches(subtitleInputs);
+        const translations: TranslationResult[] = [];
 
-        const translatePayload = (await translateRes.json()) as
-          | TranslateApiResponse
-          | { error?: string };
+        for (const batch of translationBatches) {
+          const translateRes = await fetch("/api/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              subtitles: batch,
+            }),
+          });
 
-        if (!translateRes.ok) {
-          throw new Error(
-            "error" in translatePayload && translatePayload.error
-              ? translatePayload.error
-              : "Failed to translate subtitles.",
-          );
+          const translatePayload = (await translateRes.json()) as
+            | TranslateApiResponse
+            | { error?: string };
+
+          if (!translateRes.ok) {
+            throw new Error(
+              "error" in translatePayload && translatePayload.error
+                ? translatePayload.error
+                : "Failed to translate subtitles.",
+            );
+          }
+
+          if (!isTranslateApiResponse(translatePayload)) {
+            throw new Error("Translation response shape is invalid.");
+          }
+
+          translations.push(...translatePayload.translations);
+          setTranslationProgress({
+            done: Math.min(translations.length, subtitleInputs.length),
+            total: subtitleInputs.length,
+          });
+          setNotebook(applyTranslationsToNotebook(draft, translations));
         }
 
-        if (!isTranslateApiResponse(translatePayload)) {
-          throw new Error("Translation response shape is invalid.");
-        }
-
-        setNotebook(applyTranslationsToNotebook(draft, translatePayload.translations));
+        const translatedDraft = applyTranslationsToNotebook(draft, translations);
 
         // Step 5: summarize
         setLoadingPhase("summarizing");
+        setTranslationProgress(null);
         try {
           const summarizeRes = await fetch("/api/summarize", {
             method: "POST",
@@ -130,8 +152,7 @@ export function NotebookWorkspace() {
             );
 
             // Step 7: persist to Supabase (fire-and-forget, non-fatal)
-            const translatedNotebook = applyTranslationsToNotebook(draft, translatePayload.translations);
-            const notebookToSave = { ...translatedNotebook, summary: summarizePayload.summary };
+            const notebookToSave = { ...translatedDraft, summary: summarizePayload.summary };
             fetch("/api/notebooks", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -157,6 +178,7 @@ export function NotebookWorkspace() {
       );
     } finally {
       setLoadingPhase("idle");
+      setTranslationProgress(null);
     }
   }
 
@@ -198,6 +220,11 @@ export function NotebookWorkspace() {
         initialValue={youtubeUrl}
         isLoading={isLoading}
         loadingPhase={loadingPhase}
+        loadingDetail={
+          translationProgress
+            ? `${translationProgress.done} / ${translationProgress.total}`
+            : undefined
+        }
         error={error}
         onSubmit={handleSubmit}
       />

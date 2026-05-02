@@ -39,6 +39,28 @@ describe("POST /api/translate", () => {
     expect(payload.error).toBe("A non-empty subtitles array is required.");
   });
 
+  it("returns 413 when a single translation request is too large", async () => {
+    const request = new Request("http://localhost:3000/api/translate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subtitles: Array.from({ length: 101 }, (_, index) => ({
+          id: `sub-${index + 1}`,
+          text: `Sentence ${index + 1}`,
+        })),
+      }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(payload.error).toContain("at most 100 subtitles");
+    expect(translateWithClaudeMock).not.toHaveBeenCalled();
+  });
+
   it("returns translations when the service succeeds", async () => {
     translateWithClaudeMock.mockResolvedValueOnce([
       {

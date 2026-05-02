@@ -21,6 +21,19 @@ describe("buildTranslationBatches", () => {
     expect(batches[1]).toHaveLength(20);
     expect(batches[2]).toHaveLength(5);
   });
+
+  it("uses a safe default batch size for one API call", () => {
+    const subtitles = Array.from({ length: 101 }, (_, index) => ({
+      id: `sub-${index + 1}`,
+      text: `Sentence ${index + 1}`,
+    }));
+
+    const batches = buildTranslationBatches(subtitles);
+
+    expect(batches).toHaveLength(6);
+    expect(batches[0]).toHaveLength(20);
+    expect(batches.at(-1)).toHaveLength(1);
+  });
 });
 
 describe("parseTranslationResponse", () => {

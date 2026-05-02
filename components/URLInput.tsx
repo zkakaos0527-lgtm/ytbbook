@@ -6,6 +6,7 @@ type URLInputProps = {
   initialValue?: string;
   isLoading?: boolean;
   loadingPhase?: "transcript" | "translation" | "summarizing" | "idle";
+  loadingDetail?: string;
   error?: string | null;
   onSubmit?: (youtubeUrl: string) => Promise<void> | void;
 };
@@ -14,6 +15,7 @@ export function URLInput({
   initialValue = "",
   isLoading = false,
   loadingPhase = "idle",
+  loadingDetail,
   error = null,
   onSubmit,
 }: URLInputProps) {
@@ -29,7 +31,9 @@ export function URLInput({
     loadingPhase === "transcript"
       ? "提取字幕中..."
       : loadingPhase === "translation"
-        ? "翻译中..."
+        ? loadingDetail
+          ? `翻译中... ${loadingDetail}`
+          : "翻译中..."
         : loadingPhase === "summarizing"
           ? "生成摘要中..."
           : "生成笔记";

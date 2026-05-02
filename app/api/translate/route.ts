@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ClaudeApiError, translateWithClaude } from "@/lib/claude";
+import { MAX_TRANSLATION_SUBTITLES_PER_REQUEST } from "@/lib/translation";
 import type { TranslateApiResponse, TranslationInputSubtitle } from "@/types";
 
 export const runtime = "nodejs";
@@ -35,6 +36,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Each subtitle must include string id and text fields." },
         { status: 400 },
+      );
+    }
+
+    if (body.subtitles.length > MAX_TRANSLATION_SUBTITLES_PER_REQUEST) {
+      return NextResponse.json(
+        {
+          error: `Translate at most ${MAX_TRANSLATION_SUBTITLES_PER_REQUEST} subtitles per request.`,
+        },
+        { status: 413 },
       );
     }
 
