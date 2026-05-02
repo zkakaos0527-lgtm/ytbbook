@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchTranscriptMock } = vi.hoisted(() => ({
-  fetchTranscriptMock: vi.fn(),
+const { createMock, getBasicInfoMock, getTranscriptMock } = vi.hoisted(() => ({
+  createMock: vi.fn(),
+  getBasicInfoMock: vi.fn(),
+  getTranscriptMock: vi.fn(),
 }));
 
-vi.mock("youtube-transcript", () => ({
-  YoutubeTranscript: {
-    fetchTranscript: fetchTranscriptMock,
+vi.mock("youtubei.js", () => ({
+  Innertube: {
+    create: createMock,
   },
 }));
 
@@ -18,6 +20,20 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  createMock.mockResolvedValue({
+    getBasicInfo: getBasicInfoMock,
+  });
+  getBasicInfoMock.mockResolvedValue({
+    basic_info: {
+      title: "Video",
+      author: "Unknown",
+      duration: 90,
+    },
+    playability_status: {
+      status: "OK",
+    },
+    getTranscript: getTranscriptMock,
+  });
 });
 
 describe("extractYoutubeVideoId", () => {
@@ -60,20 +76,32 @@ describe("toTranscriptApiError", () => {
 
 describe("getYoutubeTranscript", () => {
   it("uses the available transcript track when the video is not in English", async () => {
-    fetchTranscriptMock.mockResolvedValueOnce([
-      {
-        text: "Hola mundo",
-        duration: 1.5,
-        offset: 0,
-        lang: "es",
+    getTranscriptMock.mockResolvedValueOnce({
+      selectedLanguage: "es",
+      transcript: {
+        content: {
+          body: {
+            initial_segments: [
+              {
+                type: "TranscriptSegment",
+                start_ms: "0",
+                end_ms: "1500",
+                snippet: {
+                  text: "Hola mundo",
+                },
+              },
+            ],
+          },
+        },
       },
-    ]);
+    });
 
     const transcript = await getYoutubeTranscript(
       "https://www.youtube.com/watch?v=abc123def45",
     );
 
-    expect(fetchTranscriptMock).toHaveBeenCalledWith("abc123def45");
+    expect(createMock).toHaveBeenCalledWith({ retrieve_player: false });
+    expect(getBasicInfoMock).toHaveBeenCalledWith("abc123def45", { client: "WEB" });
     expect(transcript.videoInfo.language).toBe("es");
     expect(transcript.subtitles).toEqual([
       {
@@ -85,19 +113,17 @@ describe("getYoutubeTranscript", () => {
   });
 
   it("reports login-required videos clearly instead of saying captions are missing", async () => {
-    fetchTranscriptMock.mockRejectedValueOnce(
-      new Error("[YoutubeTranscript] 🚨 Transcript is disabled on this video (abc123def45)"),
-    );
-
-    const originalFetch = global.fetch;
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        playabilityStatus: {
-          status: "LOGIN_REQUIRED",
-        },
-      }),
-    } as Response);
+    getBasicInfoMock.mockResolvedValueOnce({
+      basic_info: {
+        title: "Video",
+        author: "Unknown",
+        duration: 90,
+      },
+      playability_status: {
+        status: "LOGIN_REQUIRED",
+      },
+      getTranscript: getTranscriptMock,
+    });
 
     await expect(
       getYoutubeTranscript("https://www.youtube.com/watch?v=abc123def45"),
@@ -107,8 +133,6 @@ describe("getYoutubeTranscript", () => {
         "This video requires YouTube login or verification, so subtitles cannot be fetched anonymously.",
     });
 
-    expect(fetchTranscriptMock).toHaveBeenCalledWith("abc123def45");
-
-    global.fetch = originalFetch;
+    expect(getTranscriptMock).not.toHaveBeenCalled();
   });
 });

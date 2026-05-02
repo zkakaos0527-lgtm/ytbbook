@@ -1,4 +1,4 @@
-import { YoutubeTranscript } from "youtube-transcript";
+import { Innertube } from "youtubei.js";
 
 export type TranscriptSubtitle = {
   start: number;
@@ -29,43 +29,6 @@ export class TranscriptApiError extends Error {
   }
 }
 
-async function getYoutubePlayabilityStatus(videoId: string): Promise<string | null> {
-  try {
-    const response = await fetch(
-      "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14)",
-        },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: "ANDROID",
-              clientVersion: "20.10.38",
-            },
-          },
-          videoId,
-        }),
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json()) as {
-      playabilityStatus?: { status?: string };
-    };
-
-    return payload.playabilityStatus?.status ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export function toTranscriptApiError(error: unknown): TranscriptApiError {
   if (error instanceof TranscriptApiError) {
     return error;
@@ -89,7 +52,13 @@ export function toTranscriptApiError(error: unknown): TranscriptApiError {
     );
   }
 
-  if (message.includes("disabled") || message.includes("No transcripts")) {
+  if (
+    message.includes("disabled") ||
+    message.includes("No transcripts") ||
+    message.includes("Transcript not available") ||
+    message.includes("no transcript") ||
+    message.includes("No subtitles")
+  ) {
     return new TranscriptApiError(
       "No subtitles were found for this video. The video may not have captions enabled.",
       422,
@@ -148,17 +117,6 @@ export function extractYoutubeVideoId(input: string): string | null {
   return null;
 }
 
-function cleanText(text: string): string {
-  return text
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export async function getYoutubeTranscript(youtubeUrl: string): Promise<TranscriptResult> {
   const videoId = extractYoutubeVideoId(youtubeUrl);
 
@@ -167,47 +125,63 @@ export async function getYoutubeTranscript(youtubeUrl: string): Promise<Transcri
   }
 
   try {
-    const rawTranscript = await YoutubeTranscript.fetchTranscript(videoId);
+    const innertube = await Innertube.create({ retrieve_player: false });
+    const info = await innertube.getBasicInfo(videoId, { client: "WEB" });
 
-    if (!rawTranscript || rawTranscript.length === 0) {
+    if (info.playability_status?.status === "LOGIN_REQUIRED") {
+      throw new TranscriptApiError(
+        "This video requires YouTube login or verification, so subtitles cannot be fetched anonymously.",
+        403,
+      );
+    }
+
+    const transcriptInfo = await info.getTranscript();
+
+    const segmentList = transcriptInfo.transcript.content?.body?.initial_segments;
+
+    if (!segmentList || segmentList.length === 0) {
       throw new TranscriptApiError(
         "No subtitles were found for this video.",
         422,
       );
     }
 
-    const subtitles: TranscriptSubtitle[] = rawTranscript.map((item) => ({
-      start: Number(item.offset.toFixed(3)),
-      end: Number((item.offset + item.duration).toFixed(3)),
-      text: cleanText(item.text),
-    }));
+    const subtitles: TranscriptSubtitle[] = segmentList
+      .filter((seg) => seg.type === "TranscriptSegment")
+      .map((seg) => {
+        const start = Number((seg as { start_ms: string }).start_ms) / 1000;
+        const end = Number((seg as { end_ms: string }).end_ms) / 1000;
+        const snippet = (seg as { snippet: { text?: string } }).snippet;
+        return {
+          start: Number(start.toFixed(3)),
+          end: Number(end.toFixed(3)),
+          text: snippet.text ?? "",
+        };
+      });
+
+    if (subtitles.length === 0) {
+      throw new TranscriptApiError(
+        "No subtitles were found for this video.",
+        422,
+      );
+    }
+
+    const language = transcriptInfo.selectedLanguage ?? "unknown";
 
     return {
       subtitles,
       videoInfo: {
         id: videoId,
-        title: "Video",
-        channel: "Unknown",
-        duration: subtitles.at(-1)?.end ?? 0,
-        language: rawTranscript[0]?.lang ?? "unknown",
+        title: info.basic_info.title ?? "Video",
+        channel: info.basic_info.author ?? info.basic_info.channel?.name ?? "Unknown",
+        duration: info.basic_info.duration ?? subtitles.at(-1)?.end ?? 0,
+        language,
       },
     };
   } catch (error) {
-    const message =
-      typeof error === "object" && error !== null && "message" in error
-        ? String((error as { message: unknown }).message)
-        : "";
-
-    if (message.includes("disabled") || message.includes("No transcripts")) {
-      const playabilityStatus = await getYoutubePlayabilityStatus(videoId);
-      if (playabilityStatus === "LOGIN_REQUIRED") {
-        throw new TranscriptApiError(
-          "This video requires YouTube login or verification, so subtitles cannot be fetched anonymously.",
-          403,
-        );
-      }
+    if (error instanceof TranscriptApiError) {
+      throw error;
     }
-
     throw toTranscriptApiError(error);
   }
 }
