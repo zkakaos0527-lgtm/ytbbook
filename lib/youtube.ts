@@ -1,5 +1,3 @@
-import { Innertube } from "youtubei.js";
-
 export type TranscriptSubtitle = {
   start: number;
   end: number;
@@ -43,25 +41,11 @@ export function toTranscriptApiError(error: unknown): TranscriptApiError {
     message.includes("ECONNRESET") ||
     message.includes("ENOTFOUND") ||
     message.includes("ETIMEDOUT") ||
-    message.includes("fetch failed") ||
-    message.includes("Could not get transcripts")
+    message.includes("fetch failed")
   ) {
     return new TranscriptApiError(
       "Cannot reach YouTube. Please check your network or VPN connection.",
       503,
-    );
-  }
-
-  if (
-    message.includes("disabled") ||
-    message.includes("No transcripts") ||
-    message.includes("Transcript not available") ||
-    message.includes("no transcript") ||
-    message.includes("No subtitles")
-  ) {
-    return new TranscriptApiError(
-      "No subtitles were found for this video. The video may not have captions enabled.",
-      422,
     );
   }
 
@@ -117,6 +101,85 @@ export function extractYoutubeVideoId(input: string): string | null {
   return null;
 }
 
+type CaptionTrack = {
+  baseUrl: string;
+  languageCode: string;
+  kind?: string;
+};
+
+async function fetchCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
+  const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!res.ok) {
+    throw new TranscriptApiError("Failed to fetch YouTube page.", 502);
+  }
+
+  const html = await res.text();
+
+  const match = html.match(/"captionTracks":(\[.*?\])/);
+  if (!match) {
+    if (html.includes('"LOGIN_REQUIRED"') || html.includes("signin")) {
+      throw new TranscriptApiError(
+        "This video requires YouTube login and cannot be accessed anonymously.",
+        403,
+      );
+    }
+    throw new TranscriptApiError(
+      "No subtitles were found for this video. The video may not have captions enabled.",
+      422,
+    );
+  }
+
+  return JSON.parse(match[1]) as CaptionTrack[];
+}
+
+function pickBestTrack(tracks: CaptionTrack[]): CaptionTrack {
+  // Prefer non-auto-generated English, then any English, then first track
+  const manual = tracks.filter((t) => t.kind !== "asr");
+  const enManual = manual.find((t) => t.languageCode.startsWith("en"));
+  if (enManual) return enManual;
+  const enAny = tracks.find((t) => t.languageCode.startsWith("en"));
+  if (enAny) return enAny;
+  return tracks[0];
+}
+
+function parseTimedText(xml: string): TranscriptSubtitle[] {
+  const subtitles: TranscriptSubtitle[] = [];
+  const regex = /<text start="([\d.]+)" dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = regex.exec(xml)) !== null) {
+    const start = parseFloat(m[1]);
+    const dur = parseFloat(m[2]);
+    const raw = m[3]
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (raw) {
+      subtitles.push({
+        start: Number(start.toFixed(3)),
+        end: Number((start + dur).toFixed(3)),
+        text: raw,
+      });
+    }
+  }
+
+  return subtitles;
+}
+
 export async function getYoutubeTranscript(youtubeUrl: string): Promise<TranscriptResult> {
   const videoId = extractYoutubeVideoId(youtubeUrl);
 
@@ -125,39 +188,31 @@ export async function getYoutubeTranscript(youtubeUrl: string): Promise<Transcri
   }
 
   try {
-    const innertube = await Innertube.create({ retrieve_player: false });
-    const info = await innertube.getBasicInfo(videoId, { client: "WEB" });
+    const tracks = await fetchCaptionTracks(videoId);
 
-    if (info.playability_status?.status === "LOGIN_REQUIRED") {
+    if (!tracks || tracks.length === 0) {
       throw new TranscriptApiError(
-        "This video requires YouTube login or verification, so subtitles cannot be fetched anonymously.",
-        403,
-      );
-    }
-
-    const transcriptInfo = await info.getTranscript();
-
-    const segmentList = transcriptInfo.transcript.content?.body?.initial_segments;
-
-    if (!segmentList || segmentList.length === 0) {
-      throw new TranscriptApiError(
-        "No subtitles were found for this video.",
+        "No subtitles were found for this video. The video may not have captions enabled.",
         422,
       );
     }
 
-    const subtitles: TranscriptSubtitle[] = segmentList
-      .filter((seg) => seg.type === "TranscriptSegment")
-      .map((seg) => {
-        const start = Number((seg as { start_ms: string }).start_ms) / 1000;
-        const end = Number((seg as { end_ms: string }).end_ms) / 1000;
-        const snippet = (seg as { snippet: { text?: string } }).snippet;
-        return {
-          start: Number(start.toFixed(3)),
-          end: Number(end.toFixed(3)),
-          text: snippet.text ?? "",
-        };
-      });
+    const track = pickBestTrack(tracks);
+
+    const xmlRes = await fetch(track.baseUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!xmlRes.ok) {
+      throw new TranscriptApiError("Failed to download subtitle track.", 502);
+    }
+
+    const xml = await xmlRes.text();
+    const subtitles = parseTimedText(xml);
 
     if (subtitles.length === 0) {
       throw new TranscriptApiError(
@@ -166,16 +221,14 @@ export async function getYoutubeTranscript(youtubeUrl: string): Promise<Transcri
       );
     }
 
-    const language = transcriptInfo.selectedLanguage ?? "unknown";
-
     return {
       subtitles,
       videoInfo: {
         id: videoId,
-        title: info.basic_info.title ?? "Video",
-        channel: info.basic_info.author ?? info.basic_info.channel?.name ?? "Unknown",
-        duration: info.basic_info.duration ?? subtitles.at(-1)?.end ?? 0,
-        language,
+        title: "Video",
+        channel: "Unknown",
+        duration: subtitles.at(-1)?.end ?? 0,
+        language: track.languageCode,
       },
     };
   } catch (error) {
