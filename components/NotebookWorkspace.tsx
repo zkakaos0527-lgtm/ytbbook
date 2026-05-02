@@ -93,40 +93,44 @@ export function NotebookWorkspace() {
           text: s.originalText,
         }));
         const translationBatches = buildTranslationRequestBatches(subtitleInputs);
-        const translations: TranslationResult[] = [];
+        let completedCount = 0;
 
-        for (const batch of translationBatches) {
-          const translateRes = await fetch("/api/translate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              subtitles: batch,
-            }),
-          });
+        const batchResults = await Promise.all(
+          translationBatches.map(async (batch) => {
+            const translateRes = await fetch("/api/translate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ subtitles: batch }),
+            });
 
-          const translatePayload = (await translateRes.json()) as
-            | TranslateApiResponse
-            | { error?: string };
+            const translatePayload = (await translateRes.json()) as
+              | TranslateApiResponse
+              | { error?: string };
 
-          if (!translateRes.ok) {
-            throw new Error(
-              "error" in translatePayload && translatePayload.error
-                ? translatePayload.error
-                : "Failed to translate subtitles.",
-            );
-          }
+            if (!translateRes.ok) {
+              throw new Error(
+                "error" in translatePayload && translatePayload.error
+                  ? translatePayload.error
+                  : "Failed to translate subtitles.",
+              );
+            }
 
-          if (!isTranslateApiResponse(translatePayload)) {
-            throw new Error("Translation response shape is invalid.");
-          }
+            if (!isTranslateApiResponse(translatePayload)) {
+              throw new Error("Translation response shape is invalid.");
+            }
 
-          translations.push(...translatePayload.translations);
-          setTranslationProgress({
-            done: Math.min(translations.length, subtitleInputs.length),
-            total: subtitleInputs.length,
-          });
-          setNotebook(applyTranslationsToNotebook(draft, translations));
-        }
+            completedCount += batch.length;
+            setTranslationProgress({
+              done: Math.min(completedCount, subtitleInputs.length),
+              total: subtitleInputs.length,
+            });
+
+            return translatePayload.translations;
+          }),
+        );
+
+        const translations: TranslationResult[] = batchResults.flat();
+        setNotebook(applyTranslationsToNotebook(draft, translations));
 
         const translatedDraft = applyTranslationsToNotebook(draft, translations);
 

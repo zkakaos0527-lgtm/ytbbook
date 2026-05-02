@@ -8,7 +8,7 @@ import type {
 
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_MODEL = "deepseek-chat";
-const TRANSLATION_BATCH_SIZE = 20;
+const TRANSLATION_BATCH_SIZE = 50;
 
 export class ClaudeApiError extends Error {
   status: number;
