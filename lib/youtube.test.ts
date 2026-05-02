@@ -1,16 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const { createMock, getBasicInfoMock, getTranscriptMock } = vi.hoisted(() => ({
-  createMock: vi.fn(),
-  getBasicInfoMock: vi.fn(),
-  getTranscriptMock: vi.fn(),
-}));
-
-vi.mock("youtubei.js", () => ({
-  Innertube: {
-    create: createMock,
-  },
-}));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   extractYoutubeVideoId,
@@ -18,22 +6,15 @@ import {
   toTranscriptApiError,
 } from "./youtube";
 
+const originalEnv = process.env;
+
 beforeEach(() => {
-  vi.clearAllMocks();
-  createMock.mockResolvedValue({
-    getBasicInfo: getBasicInfoMock,
-  });
-  getBasicInfoMock.mockResolvedValue({
-    basic_info: {
-      title: "Video",
-      author: "Unknown",
-      duration: 90,
-    },
-    playability_status: {
-      status: "OK",
-    },
-    getTranscript: getTranscriptMock,
-  });
+  vi.restoreAllMocks();
+  process.env = { ...originalEnv };
+});
+
+afterEach(() => {
+  process.env = originalEnv;
 });
 
 describe("extractYoutubeVideoId", () => {
@@ -67,41 +48,44 @@ describe("toTranscriptApiError", () => {
     expect(normalized.message).toContain("Cannot reach YouTube");
   });
 
-  it("converts disabled transcript errors into a 422", () => {
-    const error = new Error("Could not get transcripts for video");
+  it("converts missing transcript errors into a 422", () => {
+    const error = new Error("No transcript available for video");
     const normalized = toTranscriptApiError(error);
-    expect(normalized.status).toBe(503);
+    expect(normalized.status).toBe(422);
   });
 });
 
 describe("getYoutubeTranscript", () => {
-  it("uses the available transcript track when the video is not in English", async () => {
-    getTranscriptMock.mockResolvedValueOnce({
-      selectedLanguage: "es",
-      transcript: {
-        content: {
-          body: {
-            initial_segments: [
-              {
-                type: "TranscriptSegment",
-                start_ms: "0",
-                end_ms: "1500",
-                snippet: {
-                  text: "Hola mundo",
-                },
-              },
-            ],
+  it("uses Supadata when SUPADATA_API_KEY is configured", async () => {
+    process.env.SUPADATA_API_KEY = "supadata-key";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        lang: "es",
+        content: [
+          {
+            text: "Hola mundo",
+            offset: 0,
+            duration: 1.5,
           },
-        },
-      },
-    });
+        ],
+      }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
 
     const transcript = await getYoutubeTranscript(
       "https://www.youtube.com/watch?v=abc123def45",
     );
 
-    expect(createMock).toHaveBeenCalledWith({ retrieve_player: false });
-    expect(getBasicInfoMock).toHaveBeenCalledWith("abc123def45", { client: "WEB" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.supadata.ai/v1/transcript?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabc123def45&mode=native&text=false",
+      expect.objectContaining({
+        headers: {
+          "x-api-key": "supadata-key",
+        },
+      }),
+    );
     expect(transcript.videoInfo.language).toBe("es");
     expect(transcript.subtitles).toEqual([
       {
@@ -112,18 +96,67 @@ describe("getYoutubeTranscript", () => {
     ]);
   });
 
-  it("reports login-required videos clearly instead of saying captions are missing", async () => {
-    getBasicInfoMock.mockResolvedValueOnce({
-      basic_info: {
-        title: "Video",
-        author: "Unknown",
-        duration: 90,
+  it("falls back to RapidAPI when Supadata cannot provide subtitles", async () => {
+    process.env.SUPADATA_API_KEY = "supadata-key";
+    process.env.RAPIDAPI_KEY = "rapidapi-key";
+    process.env.RAPIDAPI_HOST = "youtube-transcript-api.example.com";
+    process.env.RAPIDAPI_TRANSCRIPT_URL =
+      "https://youtube-transcript-api.example.com/transcript?video_id={videoId}";
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "No transcript available" }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            text: "Hello world",
+            start: 2,
+            duration: 3,
+          },
+        ],
+      } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const transcript = await getYoutubeTranscript(
+      "https://www.youtube.com/watch?v=abc123def45",
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://youtube-transcript-api.example.com/transcript?video_id=abc123def45",
+      expect.objectContaining({
+        headers: {
+          "x-rapidapi-host": "youtube-transcript-api.example.com",
+          "x-rapidapi-key": "rapidapi-key",
+        },
+      }),
+    );
+    expect(transcript.videoInfo.language).toBe("unknown");
+    expect(transcript.subtitles).toEqual([
+      {
+        start: 2,
+        end: 5,
+        text: "Hello world",
       },
-      playability_status: {
-        status: "LOGIN_REQUIRED",
-      },
-      getTranscript: getTranscriptMock,
-    });
+    ]);
+  });
+
+  it("reports login-required videos clearly", async () => {
+    process.env.SUPADATA_API_KEY = "supadata-key";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: "login required" }),
+      } as Response),
+    );
 
     await expect(
       getYoutubeTranscript("https://www.youtube.com/watch?v=abc123def45"),
@@ -132,7 +165,5 @@ describe("getYoutubeTranscript", () => {
       message:
         "This video requires YouTube login or verification, so subtitles cannot be fetched anonymously.",
     });
-
-    expect(getTranscriptMock).not.toHaveBeenCalled();
   });
 });
