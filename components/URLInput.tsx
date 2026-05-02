@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 type URLInputProps = {
   initialValue?: string;
   isLoading?: boolean;
-  loadingPhase?: "transcript" | "translation" | "summarizing" | "idle";
+  loadingPhase?: "transcript" | "merging" | "translation" | "summarizing" | "idle";
   loadingDetail?: string;
   error?: string | null;
   onSubmit?: (youtubeUrl: string) => Promise<void> | void;
@@ -30,13 +30,15 @@ export function URLInput({
   const buttonLabel =
     loadingPhase === "transcript"
       ? "提取字幕中..."
-      : loadingPhase === "translation"
-        ? loadingDetail
-          ? `翻译中... ${loadingDetail}`
-          : "翻译中..."
-        : loadingPhase === "summarizing"
-          ? "生成摘要中..."
-          : "生成笔记";
+      : loadingPhase === "merging"
+        ? loadingDetail ?? "整理字幕中..."
+        : loadingPhase === "translation"
+          ? loadingDetail
+            ? `翻译中... ${loadingDetail}`
+            : "翻译中..."
+          : loadingPhase === "summarizing"
+            ? "生成摘要中..."
+            : "生成笔记";
 
   return (
     <div

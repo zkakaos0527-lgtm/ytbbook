@@ -69,6 +69,25 @@ export type TranslateApiResponse = {
   translations: TranslationResult[];
 };
 
-export type SummarizeApiResponse = {
+export type TopicSegment = {
+  startTime: number;
+  endTime: number;
+  title: string;
   summary: string;
+};
+
+export type TimelineSummaryApiResponse = {
+  segments: TopicSegment[];
+};
+
+export type SummarizeApiResponse = TimelineSummaryApiResponse;
+
+export type MergedSubtitle = {
+  start: number;
+  end: number;
+  text: string;
+};
+
+export type MergeApiResponse = {
+  subtitles: MergedSubtitle[];
 };

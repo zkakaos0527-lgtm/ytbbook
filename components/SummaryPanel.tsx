@@ -1,9 +1,12 @@
+import { formatDuration } from "@/lib/format";
+import type { TopicSegment } from "@/types";
+
 type SummaryPanelProps = {
-  summary: string;
+  timeline: TopicSegment[];
   isLoading?: boolean;
 };
 
-export function SummaryPanel({ summary, isLoading }: SummaryPanelProps) {
+export function SummaryPanel({ timeline, isLoading }: SummaryPanelProps) {
   if (isLoading) {
     return (
       <div
@@ -36,42 +39,83 @@ export function SummaryPanel({ summary, isLoading }: SummaryPanelProps) {
             textAlign: "center",
           }}
         >
-          AI 正在生成摘要…
+          AI 正在生成时间线…
         </p>
       </div>
     );
   }
 
-  if (!summary.trim()) {
+  if (!timeline || timeline.length === 0) {
     return (
-      <p style={{ fontSize: 13, color: "var(--text-3)", textAlign: "center", paddingTop: 24 }}>
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--text-3)",
+          textAlign: "center",
+          paddingTop: 24,
+        }}
+      >
         摘要将在字幕加载后自动生成
       </p>
     );
   }
 
   return (
-    <div style={{ flex: 1, overflowY: "auto" }}>
-      <div className="prose-summary">
-        {summary.split("\n").map((line, i) => {
-          if (line.startsWith("## ")) {
-            return (
-              <h2 key={i} style={{ fontSize: 14, marginTop: 16, marginBottom: 6 }}>
-                {line.replace("## ", "")}
-              </h2>
-            );
-          }
-          if (line.startsWith("- ")) {
-            return (
-              <ul key={i} style={{ marginBottom: 4 }}>
-                <li>{line.replace("- ", "")}</li>
-              </ul>
-            );
-          }
-          if (!line.trim()) return null;
-          return <p key={i}>{line}</p>;
-        })}
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {timeline.map((segment, i) => (
+        <div
+          key={i}
+          style={{
+            borderLeft: "3px solid var(--primary)",
+            paddingLeft: 12,
+            paddingTop: 2,
+            paddingBottom: 2,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 11,
+                color: "var(--primary)",
+                background: "var(--primary-light)",
+                padding: "2px 6px",
+                borderRadius: 4,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {formatDuration(segment.startTime)} – {formatDuration(segment.endTime)}
+            </span>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--text-1)",
+              }}
+            >
+              {segment.title}
+            </span>
+          </div>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--text-2)",
+              lineHeight: 1.6,
+              margin: 0,
+            }}
+          >
+            {segment.summary}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

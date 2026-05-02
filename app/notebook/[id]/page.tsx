@@ -176,7 +176,7 @@ export default async function NotebookDetailPage({
               </div>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
-              <SummaryPanel summary={notebook.summary} />
+              <SummaryPanel timeline={[]} />
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
                 <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text-3)", marginBottom: 10 }}>导出</p>
                 <ExportPanel notebook={notebook} />

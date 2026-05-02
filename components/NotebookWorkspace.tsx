@@ -13,8 +13,10 @@ import { notebookDetailMock } from "@/lib/mock-data";
 import { buildTranslationRequestBatches } from "@/lib/translation";
 import { createNotebookDraftFromTranscript } from "@/lib/workspace";
 import type {
+  MergeApiResponse,
   Notebook,
-  SummarizeApiResponse,
+  TimelineSummaryApiResponse,
+  TopicSegment,
   TranscriptApiResponse,
   TranslateApiResponse,
   TranslationResult,
@@ -32,17 +34,17 @@ function isTranslateApiResponse(
   return "translations" in payload;
 }
 
-function isSummarizeApiResponse(
-  payload: SummarizeApiResponse | { error?: string },
-): payload is SummarizeApiResponse {
-  return "summary" in payload;
-}
-
 export function NotebookWorkspace() {
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [loadingPhase, setLoadingPhase] = useState<"idle" | "transcript" | "translation" | "summarizing">("idle");
-  const [translationProgress, setTranslationProgress] = useState<{ done: number; total: number } | null>(null);
+  const [loadingPhase, setLoadingPhase] = useState<
+    "idle" | "transcript" | "merging" | "translation" | "summarizing"
+  >("idle");
+  const [translationProgress, setTranslationProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [timeline, setTimeline] = useState<TopicSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "export">("summary");
 
@@ -53,9 +55,11 @@ export function NotebookWorkspace() {
     setYoutubeUrl(nextUrl);
     setLoadingPhase("transcript");
     setTranslationProgress(null);
+    setTimeline([]);
     setError(null);
 
     try {
+      // Step 1: fetch raw transcript
       const transcriptRes = await fetch("/api/transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -78,9 +82,27 @@ export function NotebookWorkspace() {
         throw new Error("Transcript response shape is invalid.");
       }
 
+      // Step 2: LLM semantic merge
+      setLoadingPhase("merging");
+
+      const mergeRes = await fetch("/api/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subtitles: transcriptPayload.subtitles }),
+      });
+
+      const mergedSubtitles: TranscriptApiResponse["subtitles"] = mergeRes.ok
+        ? ((await mergeRes.json()) as MergeApiResponse).subtitles
+        : transcriptPayload.subtitles;
+
+      const mergedTranscript: TranscriptApiResponse = {
+        ...transcriptPayload,
+        subtitles: mergedSubtitles,
+      };
+
       const draft = createNotebookDraftFromTranscript({
         youtubeUrl: nextUrl,
-        transcript: transcriptPayload,
+        transcript: mergedTranscript,
       });
 
       setNotebook(draft);
@@ -130,41 +152,46 @@ export function NotebookWorkspace() {
         );
 
         const translations: TranslationResult[] = batchResults.flat();
-        setNotebook(applyTranslationsToNotebook(draft, translations));
-
         const translatedDraft = applyTranslationsToNotebook(draft, translations);
+        setNotebook(translatedDraft);
 
-        // Step 5: summarize
+        // Step 3: timeline summary (non-fatal)
         setLoadingPhase("summarizing");
         setTranslationProgress(null);
+
         try {
           const summarizeRes = await fetch("/api/summarize", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              subtitles: draft.subtitles.map((s) => ({ id: s.id, text: s.originalText })),
+              subtitles: draft.subtitles.map((s) => ({
+                id: String(s.startTime),
+                text: s.originalText,
+              })),
+              durationSeconds: draft.durationSeconds,
             }),
           });
 
-          const summarizePayload = (await summarizeRes.json()) as
-            | SummarizeApiResponse
-            | { error?: string };
+          if (summarizeRes.ok) {
+            const summarizePayload = (await summarizeRes.json()) as
+              | TimelineSummaryApiResponse
+              | { error?: string };
 
-          if (summarizeRes.ok && isSummarizeApiResponse(summarizePayload)) {
-            setNotebook((prev) =>
-              prev ? { ...prev, summary: summarizePayload.summary } : prev,
-            );
+            if (
+              "segments" in summarizePayload &&
+              Array.isArray(summarizePayload.segments)
+            ) {
+              setTimeline(summarizePayload.segments);
 
-            // Step 7: persist to Supabase (fire-and-forget, non-fatal)
-            const notebookToSave = { ...translatedDraft, summary: summarizePayload.summary };
-            fetch("/api/notebooks", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(notebookToSave),
-            }).catch(() => {});
+              fetch("/api/notebooks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(translatedDraft),
+              }).catch(() => {});
+            }
           }
         } catch {
-          // summary failure is non-fatal — leave summary empty
+          // summary failure is non-fatal
         }
       } catch (translationError) {
         setError(
@@ -197,7 +224,6 @@ export function NotebookWorkspace() {
       };
     });
 
-    // Persist note to Supabase if we have a real notebook (not mock)
     if (notebook) {
       fetch(`/api/notebooks/${notebook.id}/subtitles/${subtitleId}`, {
         method: "PATCH",
@@ -210,7 +236,9 @@ export function NotebookWorkspace() {
   const transcriptStatus =
     loadingPhase === "transcript"
       ? "loading"
-      : loadingPhase === "translation" || loadingPhase === "summarizing"
+      : loadingPhase === "merging" ||
+          loadingPhase === "translation" ||
+          loadingPhase === "summarizing"
         ? "translating"
         : notebook
           ? "live"
@@ -225,9 +253,11 @@ export function NotebookWorkspace() {
         isLoading={isLoading}
         loadingPhase={loadingPhase}
         loadingDetail={
-          translationProgress
-            ? `${translationProgress.done} / ${translationProgress.total}`
-            : undefined
+          loadingPhase === "merging"
+            ? "整理字幕..."
+            : translationProgress
+              ? `${translationProgress.done} / ${translationProgress.total}`
+              : undefined
         }
         error={error}
         onSubmit={handleSubmit}
@@ -297,7 +327,8 @@ export function NotebookWorkspace() {
                   fontWeight: 600,
                 }}
               >
-                {activeNotebook.sourceLanguage.toUpperCase()} → {activeNotebook.targetLanguage.toUpperCase()}
+                {activeNotebook.sourceLanguage.toUpperCase()} →{" "}
+                {activeNotebook.targetLanguage.toUpperCase()}
               </span>
             </div>
           </div>
@@ -355,7 +386,7 @@ export function NotebookWorkspace() {
             <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
               {activeTab === "summary" ? (
                 <SummaryPanel
-                  summary={activeNotebook.summary}
+                  timeline={timeline}
                   isLoading={loadingPhase === "summarizing"}
                 />
               ) : (
