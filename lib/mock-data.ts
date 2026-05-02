@@ -9,8 +9,7 @@ export const dashboardNotebookCards: DashboardNotebookCard[] = [
     subtitleCount: 84,
     noteCount: 13,
     createdAt: "2026-05-01T14:00:00.000Z",
-    thumbnailUrl:
-      "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80",
+    thumbnailUrl: "",
   },
   {
     id: "ai-agent-system",
@@ -20,8 +19,7 @@ export const dashboardNotebookCards: DashboardNotebookCard[] = [
     subtitleCount: 126,
     noteCount: 22,
     createdAt: "2026-04-28T09:30:00.000Z",
-    thumbnailUrl:
-      "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1200&q=80",
+    thumbnailUrl: "",
   },
   {
     id: "ux-research-memo",
@@ -31,8 +29,7 @@ export const dashboardNotebookCards: DashboardNotebookCard[] = [
     subtitleCount: 101,
     noteCount: 9,
     createdAt: "2026-04-22T18:15:00.000Z",
-    thumbnailUrl:
-      "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=80",
+    thumbnailUrl: "",
   },
 ];
 
@@ -42,8 +39,7 @@ export const notebookDetailMock: Notebook = {
   videoTitle: "How To Build A Reliable Learning System From Long Videos",
   channelName: "Deep Learning Journal",
   durationSeconds: 1468,
-  thumbnailUrl:
-    "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80",
+  thumbnailUrl: "",
   sourceLanguage: "en",
   targetLanguage: "zh",
   summary: [

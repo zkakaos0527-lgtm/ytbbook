@@ -120,34 +120,38 @@ export function buildTranslationBatches(
 }
 
 export function parseTranslationResponse(content: string): TranslationResult[] {
-  const jsonMatch = content.match(/\[[\s\S]*\]/);
+  let parsed: unknown;
 
-  if (!jsonMatch) {
-    throw new ClaudeApiError(
-      "DeepSeek did not return a valid JSON translation array.",
-      502,
-    );
-  }
-
-  let parsed: TranslationResult[];
-
+  // Try direct parse first (handles pure JSON responses from Gemini with responseMimeType)
   try {
-    parsed = JSON.parse(jsonMatch[0]) as TranslationResult[];
+    parsed = JSON.parse(content.trim());
   } catch {
-    throw new ClaudeApiError(
-      "DeepSeek did not return a valid JSON translation array.",
-      502,
-    );
+    // Fall back to extracting a JSON array from markdown-wrapped or mixed content
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new ClaudeApiError(
+        "Translation provider did not return a valid JSON translation array.",
+        502,
+      );
+    }
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      throw new ClaudeApiError(
+        "Translation provider did not return a valid JSON translation array.",
+        502,
+      );
+    }
   }
 
   if (!Array.isArray(parsed)) {
     throw new ClaudeApiError(
-      "DeepSeek did not return a valid JSON translation array.",
+      "Translation provider did not return a valid JSON translation array.",
       502,
     );
   }
 
-  return parsed.map((t) => ({
+  return (parsed as TranslationResult[]).map((t) => ({
     id: t.id,
     translated_text: t.translated_text,
   }));
@@ -225,7 +229,6 @@ ${JSON.stringify(subtitles)}`,
         ],
         generationConfig: {
           temperature: 0.2,
-          responseMimeType: "application/json",
         },
       }),
       signal: AbortSignal.timeout(30000),

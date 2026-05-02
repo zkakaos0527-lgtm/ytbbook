@@ -8,6 +8,7 @@ import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { URLInput } from "@/components/URLInput";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { applyTranslationsToNotebook } from "@/lib/claude";
+import { withTimeoutFallback } from "@/lib/async";
 import { formatDuration } from "@/lib/format";
 import { notebookDetailMock } from "@/lib/mock-data";
 import { buildTranslationRequestBatches } from "@/lib/translation";
@@ -51,6 +52,27 @@ export function NotebookWorkspace() {
   const activeNotebook = notebook ?? notebookDetailMock;
   const isLoading = loadingPhase !== "idle";
 
+  async function fetchMergedSubtitles(
+    subtitles: TranscriptApiResponse["subtitles"],
+  ): Promise<TranscriptApiResponse["subtitles"]> {
+    const mergeTask = fetch("/api/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subtitles }),
+    })
+      .then(async (mergeRes) => {
+        if (!mergeRes.ok) {
+          return subtitles;
+        }
+
+        const payload = (await mergeRes.json()) as MergeApiResponse;
+        return Array.isArray(payload.subtitles) ? payload.subtitles : subtitles;
+      })
+      .catch(() => subtitles);
+
+    return withTimeoutFallback(mergeTask, subtitles, 8000);
+  }
+
   async function handleSubmit(nextUrl: string) {
     setYoutubeUrl(nextUrl);
     setLoadingPhase("transcript");
@@ -85,15 +107,9 @@ export function NotebookWorkspace() {
       // Step 2: LLM semantic merge
       setLoadingPhase("merging");
 
-      const mergeRes = await fetch("/api/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subtitles: transcriptPayload.subtitles }),
-      });
-
-      const mergedSubtitles: TranscriptApiResponse["subtitles"] = mergeRes.ok
-        ? ((await mergeRes.json()) as MergeApiResponse).subtitles
-        : transcriptPayload.subtitles;
+      const mergedSubtitles = await fetchMergedSubtitles(
+        transcriptPayload.subtitles,
+      );
 
       const mergedTranscript: TranscriptApiResponse = {
         ...transcriptPayload,
