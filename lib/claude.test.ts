@@ -115,6 +115,40 @@ describe("translateWithClaude", () => {
       { id: "sub-1", translated_text: "你好" },
     ]);
   });
+
+  it("uses a custom Gemini-compatible base URL when configured", async () => {
+    process.env.TRANSLATION_PROVIDER = "gemini";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
+    process.env.GEMINI_BASE_URL = "https://api.viviai.cc/v1beta";
+
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify([
+                    { id: "sub-1", translated_text: "你好" },
+                  ]),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await translateWithClaude([{ id: "sub-1", text: "Hello" }]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.viviai.cc/v1beta/models/gemini-2.5-flash-lite:generateContent",
+      expect.any(Object),
+    );
+  });
 });
 
 describe("applyTranslationsToNotebook", () => {

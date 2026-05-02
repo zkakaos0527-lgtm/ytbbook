@@ -196,8 +196,9 @@ async function translateBatchWithGemini(
   }
 
   const model = process.env.GEMINI_MODEL ?? GEMINI_DEFAULT_MODEL;
+  const baseUrl = (process.env.GEMINI_BASE_URL ?? GEMINI_BASE_URL).replace(/\/$/, "");
   const response = await fetch(
-    `${GEMINI_BASE_URL}/models/${model}:generateContent`,
+    `${baseUrl}/models/${model}:generateContent`,
     {
       method: "POST",
       headers: {
