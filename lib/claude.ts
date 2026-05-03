@@ -11,7 +11,7 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_MODEL = "deepseek-chat";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite";
-const TRANSLATION_BATCH_SIZE = 50;
+const TRANSLATION_BATCH_SIZE = 200;
 const MERGE_BATCH_SIZE = 150;
 
 export class ClaudeApiError extends Error {
@@ -284,15 +284,15 @@ export async function translateWithClaude(
   const batches = buildTranslationBatches(subtitles);
   const translations: TranslationResult[] = [];
 
-  for (const batch of batches) {
-    translations.push(
-      ...(provider === "gemini"
-        ? await translateBatchWithGemini(batch)
-        : await translateBatchWithDeepSeek(batch)),
-    );
-  }
+  const results = await Promise.all(
+    batches.map((batch) =>
+      provider === "gemini"
+        ? translateBatchWithGemini(batch)
+        : translateBatchWithDeepSeek(batch),
+    ),
+  );
 
-  return translations;
+  return results.flat();
 }
 
 export function applyTranslationsToNotebook(
