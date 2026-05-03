@@ -8,7 +8,7 @@ import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { URLInput } from "@/components/URLInput";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { applyTranslationsToNotebook } from "@/lib/claude";
-import { mapWithConcurrency, withTimeoutFallback } from "@/lib/async";
+import { mapWithConcurrency, partitionResults, withTimeoutFallback } from "@/lib/async";
 import { formatDuration } from "@/lib/format";
 import { notebookDetailMock } from "@/lib/mock-data";
 import { buildTranslationRequestBatches } from "@/lib/translation";
@@ -171,7 +171,9 @@ export function NotebookWorkspace() {
           },
         );
 
-        const translations: TranslationResult[] = batchResults.flat();
+        const { fulfilled: successfulBatches, rejected: failedBatches } =
+          partitionResults(batchResults);
+        const translations: TranslationResult[] = successfulBatches.flat();
         const translatedDraft = applyTranslationsToNotebook(draft, translations);
         setNotebook(translatedDraft);
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapWithConcurrency, withTimeoutFallback } from "./async";
+import { mapWithConcurrency, partitionResults, withTimeoutFallback } from "./async";
 
 describe("withTimeoutFallback", () => {
   it("returns the task value when it resolves before the timeout", async () => {
@@ -25,7 +25,7 @@ describe("mapWithConcurrency", () => {
     let activeTasks = 0;
     let maxActiveTasks = 0;
 
-    const results = await mapWithConcurrency(
+    const settled = await mapWithConcurrency(
       [1, 2, 3, 4, 5],
       2,
       async (value) => {
@@ -38,6 +38,7 @@ describe("mapWithConcurrency", () => {
     );
 
     expect(maxActiveTasks).toBeLessThanOrEqual(2);
-    expect(results).toEqual([2, 4, 6, 8, 10]);
+    const { fulfilled } = partitionResults(settled);
+    expect(fulfilled).toEqual([2, 4, 6, 8, 10]);
   });
 });

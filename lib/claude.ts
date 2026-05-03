@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import { mapWithConcurrency } from "@/lib/async";
+import { mapWithConcurrency, partitionResults } from "@/lib/async";
 import type {
   Notebook,
   TopicSegment,
@@ -310,9 +310,8 @@ export async function translateWithClaude(
 
   const provider = getTranslationProvider();
   const batches = buildTranslationBatches(subtitles);
-  const translations: TranslationResult[] = [];
 
-  const results = await mapWithConcurrency(
+  const settled = await mapWithConcurrency(
     batches,
     MAX_CONCURRENT_TRANSLATION_BATCHES,
     (batch) =>
@@ -321,7 +320,13 @@ export async function translateWithClaude(
         : translateBatchWithDeepSeek(batch),
   );
 
-  return results.flat();
+  const { fulfilled, rejected } = partitionResults(settled);
+
+  if (rejected.length > 0 && fulfilled.length === 0) {
+    throw rejected[0].reason;
+  }
+
+  return fulfilled.flat();
 }
 
 export function applyTranslationsToNotebook(
