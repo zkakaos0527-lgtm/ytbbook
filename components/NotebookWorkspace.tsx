@@ -8,7 +8,7 @@ import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { URLInput } from "@/components/URLInput";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { applyTranslationsToNotebook } from "@/lib/claude";
-import { withTimeoutFallback } from "@/lib/async";
+import { mapWithConcurrency, withTimeoutFallback } from "@/lib/async";
 import { formatDuration } from "@/lib/format";
 import { notebookDetailMock } from "@/lib/mock-data";
 import { buildTranslationRequestBatches } from "@/lib/translation";
@@ -22,6 +22,8 @@ import type {
   TranslateApiResponse,
   TranslationResult,
 } from "@/types";
+
+const MAX_CONCURRENT_TRANSLATION_REQUESTS = 5;
 
 function isTranscriptApiResponse(
   payload: TranscriptApiResponse | { error?: string },
@@ -133,8 +135,10 @@ export function NotebookWorkspace() {
         const translationBatches = buildTranslationRequestBatches(subtitleInputs);
         let completedCount = 0;
 
-        const batchResults = await Promise.all(
-          translationBatches.map(async (batch) => {
+        const batchResults = await mapWithConcurrency(
+          translationBatches,
+          MAX_CONCURRENT_TRANSLATION_REQUESTS,
+          async (batch) => {
             const translateRes = await fetch("/api/translate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -164,7 +168,7 @@ export function NotebookWorkspace() {
             });
 
             return translatePayload.translations;
-          }),
+          },
         );
 
         const translations: TranslationResult[] = batchResults.flat();
@@ -417,6 +421,7 @@ export function NotebookWorkspace() {
           notebook={activeNotebook}
           subtitles={activeNotebook.subtitles}
           status={transcriptStatus}
+          translationProgress={translationProgress}
           onNoteChange={handleNoteChange}
         />
       </div>

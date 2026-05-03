@@ -35,15 +35,15 @@ describe("buildTranslationBatches", () => {
   });
 
   it("uses a safe default batch size for one API call", () => {
-    const subtitles = Array.from({ length: 101 }, (_, index) => ({
+    const subtitles = Array.from({ length: 201 }, (_, index) => ({
       id: `sub-${index + 1}`,
       text: `Sentence ${index + 1}`,
     }));
 
     const batches = buildTranslationBatches(subtitles);
 
-    expect(batches).toHaveLength(3);
-    expect(batches[0]).toHaveLength(50);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).toHaveLength(200);
     expect(batches.at(-1)).toHaveLength(1);
   });
 });
@@ -56,6 +56,28 @@ describe("parseTranslationResponse", () => {
         {"id":"sub-1","translated_text":"第一句"},
         {"id":"sub-2","translated_text":"第二句"}
       ]
+    `);
+
+    expect(parsed).toEqual([
+      {
+        id: "sub-1",
+        translated_text: "第一句",
+      },
+      {
+        id: "sub-2",
+        translated_text: "第二句",
+      },
+    ]);
+  });
+
+  it("accepts provider responses wrapped in a translations object", () => {
+    const parsed = parseTranslationResponse(`
+      {
+        "translations": [
+          {"id":"sub-1","translated_text":"第一句"},
+          {"id":"sub-2","translated_text":"第二句"}
+        ]
+      }
     `);
 
     expect(parsed).toEqual([

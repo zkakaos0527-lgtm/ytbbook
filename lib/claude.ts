@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { mapWithConcurrency } from "@/lib/async";
 import type {
   Notebook,
   TopicSegment,
@@ -12,6 +13,7 @@ const DEEPSEEK_MODEL = "deepseek-chat";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite";
 const TRANSLATION_BATCH_SIZE = 200;
+const MAX_CONCURRENT_TRANSLATION_BATCHES = 5;
 const MERGE_BATCH_SIZE = 150;
 
 export class ClaudeApiError extends Error {
@@ -144,17 +146,42 @@ export function parseTranslationResponse(content: string): TranslationResult[] {
     }
   }
 
-  if (!Array.isArray(parsed)) {
+  const translations =
+    Array.isArray(parsed)
+      ? parsed
+      : typeof parsed === "object" &&
+          parsed !== null &&
+          "translations" in parsed &&
+          Array.isArray((parsed as { translations?: unknown }).translations)
+        ? (parsed as { translations: unknown[] }).translations
+        : null;
+
+  if (!translations) {
     throw new ClaudeApiError(
       "Translation provider did not return a valid JSON translation array.",
       502,
     );
   }
 
-  return (parsed as TranslationResult[]).map((t) => ({
-    id: t.id,
-    translated_text: t.translated_text,
-  }));
+  return translations.map((t) => {
+    if (
+      typeof t !== "object" ||
+      t === null ||
+      typeof (t as Partial<TranslationResult>).id !== "string" ||
+      typeof (t as Partial<TranslationResult>).translated_text !== "string"
+    ) {
+      throw new ClaudeApiError(
+        "Translation provider did not return a valid JSON translation array.",
+        502,
+      );
+    }
+
+    const item = t as TranslationResult;
+    return {
+      id: item.id,
+      translated_text: item.translated_text,
+    };
+  });
 }
 
 function getTranslationProvider(): "deepseek" | "gemini" {
@@ -229,6 +256,7 @@ ${JSON.stringify(subtitles)}`,
         ],
         generationConfig: {
           temperature: 0.2,
+          responseMimeType: "application/json",
         },
       }),
       signal: AbortSignal.timeout(30000),
@@ -284,12 +312,13 @@ export async function translateWithClaude(
   const batches = buildTranslationBatches(subtitles);
   const translations: TranslationResult[] = [];
 
-  const results = await Promise.all(
-    batches.map((batch) =>
+  const results = await mapWithConcurrency(
+    batches,
+    MAX_CONCURRENT_TRANSLATION_BATCHES,
+    (batch) =>
       provider === "gemini"
         ? translateBatchWithGemini(batch)
         : translateBatchWithDeepSeek(batch),
-    ),
   );
 
   return results.flat();

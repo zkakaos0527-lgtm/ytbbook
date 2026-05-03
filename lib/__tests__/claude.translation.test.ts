@@ -1,10 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-// We test the internal batching/parallelism by intercepting fetch.
-// The key behaviors under test:
-//   1. A batch of ≤200 subtitles makes exactly ONE Gemini fetch call (no internal re-batching).
-//   2. When translateWithClaude is called with 201+ subtitles it still works (caller is
-//      responsible for splitting, but we verify the function handles it gracefully).
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const makeSubtitles = (count: number) =>
   Array.from({ length: count }, (_, i) => ({
@@ -31,7 +25,7 @@ const makeGeminiResponse = (subtitles: { id: string }[]) => ({
   ],
 });
 
-describe("translateWithClaude – parallel batching", () => {
+describe("translateWithClaude parallel batching", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -61,6 +55,7 @@ describe("translateWithClaude – parallel batching", () => {
         const inputSubtitles = JSON.parse(
           body.contents[0].parts[0].text.split("字幕：\n")[1],
         ) as { id: string }[];
+
         return {
           ok: true,
           json: async () => makeGeminiResponse(inputSubtitles),
@@ -77,18 +72,22 @@ describe("translateWithClaude – parallel batching", () => {
     expect(results[199]).toEqual({ id: "s199", translated_text: "翻译 s199" });
   });
 
-  it("translates 50 subtitles with exactly one Gemini API call", async () => {
-    const subtitles = makeSubtitles(50);
-    let callCount = 0;
+  it("includes responseMimeType application/json in Gemini request", async () => {
+    const subtitles = makeSubtitles(10);
+    let capturedBody: Record<string, unknown> | null = null;
 
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, options: RequestInit) => {
-        callCount++;
-        const body = JSON.parse(options.body as string);
+        capturedBody = JSON.parse(options.body as string) as Record<string, unknown>;
         const inputSubtitles = JSON.parse(
-          body.contents[0].parts[0].text.split("字幕：\n")[1],
+          (
+            capturedBody.contents as {
+              parts: { text: string }[];
+            }[]
+          )[0].parts[0].text.split("字幕：\n")[1],
         ) as { id: string }[];
+
         return {
           ok: true,
           json: async () => makeGeminiResponse(inputSubtitles),
@@ -97,29 +96,37 @@ describe("translateWithClaude – parallel batching", () => {
     );
 
     const { translateWithClaude } = await import("../claude");
-    const results = await translateWithClaude(subtitles);
+    await translateWithClaude(subtitles);
 
-    expect(callCount).toBe(1);
-    expect(results).toHaveLength(50);
+    expect(
+      (capturedBody?.generationConfig as Record<string, unknown>)?.responseMimeType,
+    ).toBe("application/json");
   });
 
-  it("fires batch calls in parallel when given 400 subtitles (2 batches of 200)", async () => {
-    const subtitles = makeSubtitles(400);
+  it("caps concurrent Gemini calls at 5 while keeping each wave parallel", async () => {
+    const subtitles = makeSubtitles(1200);
+    let activeCalls = 0;
+    let maxActiveCalls = 0;
     const callStartTimes: number[] = [];
     const callEndTimes: number[] = [];
 
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, options: RequestInit) => {
+        activeCalls++;
+        maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
         callStartTimes.push(Date.now());
-        // Simulate 50ms latency per call
-        await new Promise((r) => setTimeout(r, 50));
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        activeCalls--;
         callEndTimes.push(Date.now());
 
         const body = JSON.parse(options.body as string);
         const inputSubtitles = JSON.parse(
           body.contents[0].parts[0].text.split("字幕：\n")[1],
         ) as { id: string }[];
+
         return {
           ok: true,
           json: async () => makeGeminiResponse(inputSubtitles),
@@ -132,11 +139,11 @@ describe("translateWithClaude – parallel batching", () => {
     const results = await translateWithClaude(subtitles);
     const elapsed = Date.now() - start;
 
-    // Sequential would take ~100ms; parallel should finish in ~50ms (+margin)
-    expect(elapsed).toBeLessThan(90);
-    expect(results).toHaveLength(400);
-    // Both calls should have started before either finished
-    expect(callStartTimes).toHaveLength(2);
-    expect(callStartTimes[1]).toBeLessThan(callEndTimes[0]);
+    expect(results).toHaveLength(1200);
+    expect(maxActiveCalls).toBeLessThanOrEqual(5);
+    expect(callStartTimes).toHaveLength(6);
+    expect(callStartTimes[4]).toBeLessThan(callEndTimes[0]);
+    expect(callStartTimes[5]).toBeGreaterThanOrEqual(callEndTimes[0]);
+    expect(elapsed).toBeLessThan(130);
   });
 });

@@ -9,6 +9,10 @@ type TranscriptPanelProps = {
   notebook: Notebook;
   subtitles: Subtitle[];
   status?: "sample" | "loading" | "translating" | "live" | "error";
+  translationProgress?: {
+    done: number;
+    total: number;
+  } | null;
   onNoteChange?: (id: string, note: string) => void;
 };
 
@@ -16,6 +20,7 @@ export function TranscriptPanel({
   notebook,
   subtitles,
   status = "sample",
+  translationProgress = null,
   onNoteChange,
 }: TranscriptPanelProps) {
   const [search, setSearch] = useState("");
@@ -37,6 +42,11 @@ export function TranscriptPanel({
       (s.translatedText ?? "").toLowerCase().includes(q)
     );
   });
+
+  const progressPercent =
+    translationProgress && translationProgress.total > 0
+      ? Math.round((translationProgress.done / translationProgress.total) * 100)
+      : 0;
 
   function handleCopyAll() {
     const text = subtitles
@@ -200,6 +210,60 @@ export function TranscriptPanel({
           📝 仅笔记
         </button>
       </div>
+
+      {status === "translating" && translationProgress && (
+        <div
+          style={{
+            padding: "10px 20px 12px",
+            borderBottom: "1px solid var(--border-light)",
+            background: "var(--bg-card)",
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 7,
+              gap: 12,
+            }}
+          >
+            <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 600 }}>
+              翻译进度
+            </span>
+            <span className="font-mono" style={{ fontSize: 12, color: "var(--text-3)" }}>
+              {translationProgress.done} / {translationProgress.total} · {progressPercent}%
+            </span>
+          </div>
+          <div
+            aria-label="字幕翻译进度"
+            aria-valuemax={translationProgress.total}
+            aria-valuemin={0}
+            aria-valuenow={translationProgress.done}
+            role="progressbar"
+            style={{
+              height: 7,
+              width: "100%",
+              overflow: "hidden",
+              borderRadius: 999,
+              background: "var(--bg-input)",
+              border: "1px solid var(--border-light)",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${progressPercent}%`,
+                minWidth: translationProgress.done > 0 ? 6 : 0,
+                borderRadius: 999,
+                background: "var(--primary)",
+                transition: "width 0.2s ease",
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Subtitle list */}
       <div style={{ flex: 1, overflowY: "auto" }}>
