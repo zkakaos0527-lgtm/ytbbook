@@ -311,6 +311,7 @@ export async function translateWithClaude(
   const provider = getTranslationProvider();
   const batches = buildTranslationBatches(subtitles);
 
+  // First attempt: process all batches concurrently
   const settled = await mapWithConcurrency(
     batches,
     MAX_CONCURRENT_TRANSLATION_BATCHES,
@@ -322,8 +323,38 @@ export async function translateWithClaude(
 
   const { fulfilled, rejected } = partitionResults(settled);
 
+  // All batches failed — propagate error
   if (rejected.length > 0 && fulfilled.length === 0) {
     throw rejected[0].reason;
+  }
+
+  // Some batches failed — retry failed ones (up to 3 attempts)
+  if (rejected.length > 0) {
+    const MAX_RETRIES = 3;
+    let failedBatches = rejected.map((r) => batches[r.index]);
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const retrySettled = await mapWithConcurrency(
+        failedBatches,
+        MAX_CONCURRENT_TRANSLATION_BATCHES,
+        (batch) =>
+          provider === "gemini"
+            ? translateBatchWithGemini(batch)
+            : translateBatchWithDeepSeek(batch),
+      );
+
+      const { fulfilled: retryFulfilled, rejected: retryRejected } =
+        partitionResults(retrySettled);
+
+      fulfilled.push(...retryFulfilled);
+
+      if (retryRejected.length === 0) {
+        break; // all retried batches succeeded
+      }
+
+      // Still failing after retry — update to only the still-failed ones
+      failedBatches = retryRejected.map((r) => batches[r.index]);
+    }
   }
 
   return fulfilled.flat();
