@@ -142,8 +142,13 @@ describe("translateWithClaude parallel batching", () => {
     expect(results).toHaveLength(1200);
     expect(maxActiveCalls).toBeLessThanOrEqual(5);
     expect(callStartTimes).toHaveLength(6);
+    // Wave 1: first 5 batches run in parallel (start together, finish ~50ms later)
     expect(callStartTimes[4]).toBeLessThan(callEndTimes[0]);
+    // Wave 2: 6th batch starts only after wave 1 finishes (~50ms)
+    // Sequential would have all start times < all end times
     expect(callStartTimes[5]).toBeGreaterThanOrEqual(callEndTimes[0]);
+    // With concurrency cap, 6 batches × 50ms ≈ 100-130ms (2 waves)
+    // Pure sequential would be 300ms+
     expect(elapsed).toBeLessThan(130);
   });
 });
