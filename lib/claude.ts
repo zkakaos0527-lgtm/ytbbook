@@ -12,7 +12,7 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_MODEL = "deepseek-chat";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite";
-const TRANSLATION_BATCH_SIZE = 100;
+const TRANSLATION_BATCH_SIZE = 50;
 const MAX_CONCURRENT_TRANSLATION_BATCHES = 5;
 const MERGE_BATCH_SIZE = 150;
 
@@ -243,10 +243,12 @@ async function translateBatchWithGemini(
             parts: [
               {
                 text: `你是专业字幕翻译。将以下字幕逐句翻译为自然中文。
+
 要求：
 1. 保留每条字幕的 id，不要新增、删除或重排。
-2. 专业术语第一次出现时可保留英文原词。
-3. 直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"..."}。
+2. 只翻译成中文，不要返回原文。
+3. 如果无法翻译某条，将 translated_text 设为空字符串。
+4. 直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"翻译后的中文"}。
 
 字幕：
 ${JSON.stringify(subtitles)}`,
@@ -288,7 +290,13 @@ async function translateBatchWithDeepSeek(
       {
         role: "system",
         content:
-          '你是专业翻译。将以下字幕逐句翻译为中文。保持原文的语序和段落划分。专业术语附英文原词。直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"..."}。',
+          `你是专业字幕翻译。将以下字幕逐句翻译为自然中文。
+
+要求：
+1. 保留每条字幕的 id，不要新增、删除或重排。
+2. 只翻译成中文，不要返回原文。
+3. 如果无法翻译某条，将 translated_text 设为空字符串。
+4. 直接返回 JSON 数组，每项格式为 {"id":"...","translated_text":"翻译后的中文"}。`,
       },
       {
         role: "user",

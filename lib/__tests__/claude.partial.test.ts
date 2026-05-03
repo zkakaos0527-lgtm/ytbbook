@@ -70,7 +70,7 @@ describe("translateWithClaude partial failure tolerance", () => {
   });
 
   it("applies partial translations to notebook when some batches fail", async () => {
-    // 600 subtitles / 100 per batch = 6 batches
+    // 600 subtitles / 50 per batch = 12 batches
     const subtitles = makeSubtitles(600);
 
     vi.stubGlobal(
@@ -82,8 +82,8 @@ describe("translateWithClaude partial failure tolerance", () => {
         ) as { id: string }[];
         const firstId = parseInt(inputSubtitles[0].id.slice(1), 10);
 
-        // Batch 3 (firstId == 200) fails
-        if (firstId === 200) {
+        // Batch 3 (firstId == 100) fails
+        if (firstId === 100) {
           return {
             ok: false,
             status: 502,
@@ -128,14 +128,14 @@ describe("translateWithClaude partial failure tolerance", () => {
 
     const updated = applyTranslationsToNotebook(notebook, translations);
 
-    // Batches 1,2 (s0-s199) and 4,5,6 (s300-s599) succeeded (500 total)
-    // Batch 3 (s200-s299) failed (100 pending)
+    // Batches 1,2,4,5,6,7,8,9,10,11,12 succeeded (550 total)
+    // Batch 3 (s100-s149) failed (50 pending)
     const translated = updated.subtitles.filter((s) => s.translatedText !== null);
     const pending = updated.subtitles.filter(
       (s) => s.translatedText === null && subtitles.find((sub) => sub.id === s.id) !== undefined,
     );
 
-    expect(translated).toHaveLength(500);
-    expect(pending).toHaveLength(100); // s200-s299
+    expect(translated).toHaveLength(550);
+    expect(pending).toHaveLength(50); // s100-s149
   });
 });

@@ -20,10 +20,12 @@ import type {
   TopicSegment,
   TranscriptApiResponse,
   TranslateApiResponse,
+  TranslationInputSubtitle,
   TranslationResult,
 } from "@/types";
 
 const MAX_CONCURRENT_TRANSLATION_REQUESTS = 5;
+const MAX_TRANSLATION_RETRIES = 3;
 
 function isTranscriptApiResponse(
   payload: TranscriptApiResponse | { error?: string },
@@ -50,6 +52,7 @@ export function NotebookWorkspace() {
   const [timeline, setTimeline] = useState<TopicSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "export">("summary");
+  const [failedSubtitles, setFailedSubtitles] = useState<TranslationInputSubtitle[] | null>(null);
 
   const activeNotebook = notebook ?? notebookDetailMock;
   const isLoading = loadingPhase !== "idle";
@@ -73,6 +76,41 @@ export function NotebookWorkspace() {
       .catch(() => subtitles);
 
     return withTimeoutFallback(mergeTask, subtitles, 8000);
+  }
+
+  async function handleRetryFailed() {
+    if (!notebook || !failedSubtitles || failedSubtitles.length === 0) return;
+
+    setLoadingPhase("translation");
+    setTranslationProgress({ done: 0, total: failedSubtitles.length });
+
+    try {
+      const translateRes = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subtitles: failedSubtitles }),
+      });
+
+      if (translateRes.ok) {
+        const translatePayload = (await translateRes.json()) as
+          | TranslateApiResponse
+          | { error?: string };
+
+        if (isTranslateApiResponse(translatePayload)) {
+          const updatedNotebook = applyTranslationsToNotebook(
+            notebook,
+            translatePayload.translations,
+          );
+          setNotebook(updatedNotebook);
+          setFailedSubtitles(null);
+        }
+      }
+    } catch {
+      // Silent fail, button remains
+    } finally {
+      setLoadingPhase("idle");
+      setTranslationProgress(null);
+    }
   }
 
   async function handleSubmit(nextUrl: string) {
@@ -126,55 +164,102 @@ export function NotebookWorkspace() {
       setNotebook(draft);
       setLoadingPhase("translation");
       setTranslationProgress({ done: 0, total: draft.subtitles.length });
+      setFailedSubtitles(null);
 
       try {
         const subtitleInputs = draft.subtitles.map((s) => ({
           id: s.id,
           text: s.originalText,
         }));
-        const translationBatches = buildTranslationRequestBatches(subtitleInputs);
-        let completedCount = 0;
 
-        const batchResults = await mapWithConcurrency(
-          translationBatches,
-          MAX_CONCURRENT_TRANSLATION_REQUESTS,
-          async (batch) => {
-            const translateRes = await fetch("/api/translate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ subtitles: batch }),
-            });
+        let allTranslations: TranslationResult[] = [];
+        let remainingSubtitles = subtitleInputs;
+        let retryCount = 0;
 
-            const translatePayload = (await translateRes.json()) as
-              | TranslateApiResponse
-              | { error?: string };
+        // Retry loop: keep translating failed batches until success or max retries
+        while (retryCount < MAX_TRANSLATION_RETRIES && remainingSubtitles.length > 0) {
+          const translationBatches = buildTranslationRequestBatches(remainingSubtitles);
+          let completedCount = 0;
 
-            if (!translateRes.ok) {
-              throw new Error(
-                "error" in translatePayload && translatePayload.error
-                  ? translatePayload.error
-                  : "Failed to translate subtitles.",
-              );
+          const batchResults = await mapWithConcurrency(
+            translationBatches,
+            MAX_CONCURRENT_TRANSLATION_REQUESTS,
+            async (batch) => {
+              const translateRes = await fetch("/api/translate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subtitles: batch }),
+              });
+
+              const translatePayload = (await translateRes.json()) as
+                | TranslateApiResponse
+                | { error?: string };
+
+              if (!translateRes.ok) {
+                throw new Error(
+                  "error" in translatePayload && translatePayload.error
+                    ? translatePayload.error
+                    : "Failed to translate subtitles.",
+                );
+              }
+
+              if (!isTranslateApiResponse(translatePayload)) {
+                throw new Error("Translation response shape is invalid.");
+              }
+
+              completedCount += batch.length;
+              setTranslationProgress({
+                done: Math.min(
+                  allTranslations.length + completedCount,
+                  subtitleInputs.length,
+                ),
+                total: subtitleInputs.length,
+              });
+
+              return translatePayload.translations;
+            },
+          );
+
+          const { fulfilled: successfulBatches, rejected: failedBatches } =
+            partitionResults(batchResults);
+
+          const newTranslations: TranslationResult[] = successfulBatches.flat();
+          allTranslations = [...allTranslations, ...newTranslations];
+
+          // If there are failed batches, collect failed subtitle IDs for retry
+          if (failedBatches.length > 0) {
+            const successfulIds = new Set(newTranslations.map((t) => t.id));
+            const failedIds = remainingSubtitles
+              .filter((s) => !successfulIds.has(s.id))
+              .map((s) => s.id);
+
+            const failedBatchIndices = new Set(
+              failedBatches.map((r) => r.index),
+            );
+            remainingSubtitles = remainingSubtitles.filter((_, index) =>
+              failedBatchIndices.has(index),
+            );
+
+            // Only retry if we have remaining subtitles and haven't exceeded max retries
+            if (remainingSubtitles.length > 0) {
+              retryCount++;
+              if (retryCount >= MAX_TRANSLATION_RETRIES) {
+                // Max retries reached, save failed subtitles for manual retry
+                const failedIdsSet = new Set(failedIds);
+                const failedItems = subtitleInputs.filter((s) =>
+                  failedIdsSet.has(s.id),
+                );
+                setFailedSubtitles(failedItems);
+                break;
+              }
             }
+          } else {
+            // All successful
+            remainingSubtitles = [];
+          }
+        }
 
-            if (!isTranslateApiResponse(translatePayload)) {
-              throw new Error("Translation response shape is invalid.");
-            }
-
-            completedCount += batch.length;
-            setTranslationProgress({
-              done: Math.min(completedCount, subtitleInputs.length),
-              total: subtitleInputs.length,
-            });
-
-            return translatePayload.translations;
-          },
-        );
-
-        const { fulfilled: successfulBatches, rejected: failedBatches } =
-          partitionResults(batchResults);
-        const translations: TranslationResult[] = successfulBatches.flat();
-        const translatedDraft = applyTranslationsToNotebook(draft, translations);
+        const translatedDraft = applyTranslationsToNotebook(draft, allTranslations);
         setNotebook(translatedDraft);
 
         // Step 3: timeline summary (non-fatal)
@@ -284,6 +369,41 @@ export function NotebookWorkspace() {
         error={error}
         onSubmit={handleSubmit}
       />
+
+      {/* Retry failed translations button */}
+      {failedSubtitles && failedSubtitles.length > 0 && !isLoading && (
+        <div
+          style={{
+            padding: "10px 16px",
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span style={{ fontSize: 13, color: "var(--text-2)" }}>
+            有 <strong>{failedSubtitles.length}</strong> 条字幕翻译失败
+          </span>
+          <button
+            type="button"
+            onClick={handleRetryFailed}
+            style={{
+              padding: "6px 16px",
+              background: "var(--primary)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 16,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            重新翻译
+          </button>
+        </div>
+      )}
 
       {/* Two-column layout */}
       <div

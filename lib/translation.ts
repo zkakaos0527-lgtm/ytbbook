@@ -1,6 +1,6 @@
 import type { TranslationInputSubtitle } from "@/types";
 
-export const MAX_TRANSLATION_SUBTITLES_PER_REQUEST = 200;
+export const MAX_TRANSLATION_SUBTITLES_PER_REQUEST = 50;
 
 export function buildTranslationRequestBatches(
   subtitles: TranslationInputSubtitle[],
