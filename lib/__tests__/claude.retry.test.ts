@@ -47,7 +47,8 @@ describe("translateWithClaude retry until success", () => {
   // by the partial-results test below (batch1 exhausts retries while 2 & 3 succeed).
 
   it("returns partial results when some batches keep failing after max retries", async () => {
-    const subtitles = makeSubtitles(600); // 3 batches
+    // 600 subtitles / 100 per batch = 6 batches
+    const subtitles = makeSubtitles(600);
     let callCount = 0;
 
     vi.stubGlobal(
@@ -60,7 +61,7 @@ describe("translateWithClaude retry until success", () => {
         ) as { id: string }[];
         const firstId = parseInt(inputSubtitles[0].id.slice(1), 10);
 
-        // Batch 1 (s0-s199) always fails across all retries
+        // Batch 1 (s0-s99) always fails across all retries
         if (firstId === 0) {
           return {
             ok: false,
@@ -79,10 +80,10 @@ describe("translateWithClaude retry until success", () => {
     const { translateWithClaude } = await import("../claude");
     const results = await translateWithClaude(subtitles);
 
-    // Batches 2 and 3 succeed (200 each = 400). Batch 1 exhausts retries.
-    // 1 initial attempt (3 batches) + 3 retries of batch 1 = 6 calls
-    expect(results).toHaveLength(400);
-    expect(callCount).toBe(6);
+    // Batches 2-6 succeed (100 each = 500). Batch 1 exhausts retries.
+    // 1 initial attempt (6 batches) + 3 retries of batch 1 = 4 waves
+    expect(results).toHaveLength(500);
+    expect(callCount).toBe(9);
   });
 
   it("throws when all batches fail and all retries are exhausted", async () => {

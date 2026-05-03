@@ -43,8 +43,8 @@ describe("translateWithClaude parallel batching", () => {
     vi.unstubAllGlobals();
   });
 
-  it("translates 200 subtitles with exactly one Gemini API call", async () => {
-    const subtitles = makeSubtitles(200);
+  it("translates 100 subtitles with exactly one Gemini API call", async () => {
+    const subtitles = makeSubtitles(100);
     let callCount = 0;
 
     vi.stubGlobal(
@@ -67,9 +67,9 @@ describe("translateWithClaude parallel batching", () => {
     const results = await translateWithClaude(subtitles);
 
     expect(callCount).toBe(1);
-    expect(results).toHaveLength(200);
+    expect(results).toHaveLength(100);
     expect(results[0]).toEqual({ id: "s0", translated_text: "翻译 s0" });
-    expect(results[199]).toEqual({ id: "s199", translated_text: "翻译 s199" });
+    expect(results[99]).toEqual({ id: "s99", translated_text: "翻译 s99" });
   });
 
   it("includes responseMimeType application/json in Gemini request", async () => {
@@ -104,6 +104,7 @@ describe("translateWithClaude parallel batching", () => {
   });
 
   it("caps concurrent Gemini calls at 5 while keeping each wave parallel", async () => {
+    // 1200 subtitles / 100 per batch = 12 batches (3 waves: 5 + 5 + 2)
     const subtitles = makeSubtitles(1200);
     let activeCalls = 0;
     let maxActiveCalls = 0;
@@ -141,14 +142,15 @@ describe("translateWithClaude parallel batching", () => {
 
     expect(results).toHaveLength(1200);
     expect(maxActiveCalls).toBeLessThanOrEqual(5);
-    expect(callStartTimes).toHaveLength(6);
+    expect(callStartTimes).toHaveLength(12);
     // Wave 1: first 5 batches run in parallel (start together, finish ~50ms later)
     expect(callStartTimes[4]).toBeLessThan(callEndTimes[0]);
     // Wave 2: 6th batch starts only after wave 1 finishes (~50ms)
-    // Sequential would have all start times < all end times
     expect(callStartTimes[5]).toBeGreaterThanOrEqual(callEndTimes[0]);
-    // With concurrency cap, 6 batches × 50ms ≈ 100-130ms (2 waves)
-    // Pure sequential would be 300ms+
-    expect(elapsed).toBeLessThan(130);
+    // Wave 3: 11th batch starts only after wave 2 finishes (~50ms)
+    expect(callStartTimes[10]).toBeGreaterThanOrEqual(callEndTimes[5]);
+    // With concurrency cap, 12 batches × 50ms ≈ 150-180ms (3 waves)
+    // Pure sequential would be 600ms+
+    expect(elapsed).toBeLessThan(200);
   });
 });

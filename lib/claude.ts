@@ -12,7 +12,7 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_MODEL = "deepseek-chat";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite";
-const TRANSLATION_BATCH_SIZE = 200;
+const TRANSLATION_BATCH_SIZE = 100;
 const MAX_CONCURRENT_TRANSLATION_BATCHES = 5;
 const MERGE_BATCH_SIZE = 150;
 
@@ -301,6 +301,24 @@ async function translateBatchWithDeepSeek(
   return parseTranslationResponse(textContent);
 }
 
+async function translateBatchDual(
+  batch: TranslationInputSubtitle[],
+): Promise<TranslationResult[]> {
+  const geminiTask = translateBatchWithGemini(batch);
+  const deepseekTask = translateBatchWithDeepSeek(batch);
+
+  try {
+    return await Promise.race([geminiTask, deepseekTask]);
+  } catch (firstError) {
+    const results = await Promise.allSettled([geminiTask, deepseekTask]);
+    const success = results.find((r) => r.status === "fulfilled");
+    if (success && success.status === "fulfilled") {
+      return success.value;
+    }
+    throw firstError;
+  }
+}
+
 export async function translateWithClaude(
   subtitles: TranslationInputSubtitle[],
 ): Promise<TranslationResult[]> {
@@ -308,17 +326,13 @@ export async function translateWithClaude(
     throw new ClaudeApiError("No subtitles were provided for translation.", 400);
   }
 
-  const provider = getTranslationProvider();
   const batches = buildTranslationBatches(subtitles);
 
-  // First attempt: process all batches concurrently
+  // First attempt: process all batches concurrently with dual providers
   const settled = await mapWithConcurrency(
     batches,
     MAX_CONCURRENT_TRANSLATION_BATCHES,
-    (batch) =>
-      provider === "gemini"
-        ? translateBatchWithGemini(batch)
-        : translateBatchWithDeepSeek(batch),
+    (batch) => translateBatchDual(batch),
   );
 
   const { fulfilled, rejected } = partitionResults(settled);
@@ -331,29 +345,43 @@ export async function translateWithClaude(
   // Some batches failed — retry failed ones (up to 3 attempts)
   if (rejected.length > 0) {
     const MAX_RETRIES = 3;
-    let failedBatches = rejected.map((r) => batches[r.index]);
+    // Fix index bug: track original batch index with { batchIndex, batch }
+    let failedBatchInfos: Array<{ batchIndex: number; batch: TranslationInputSubtitle[] }> =
+      rejected.map((r) => ({
+        batchIndex: r.index,
+        batch: batches[r.index],
+      }));
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= MAX_RETRIES && failedBatchInfos.length > 0; attempt++) {
       const retrySettled = await mapWithConcurrency(
-        failedBatches,
+        failedBatchInfos,
         MAX_CONCURRENT_TRANSLATION_BATCHES,
-        (batch) =>
-          provider === "gemini"
-            ? translateBatchWithGemini(batch)
-            : translateBatchWithDeepSeek(batch),
+        (info) => translateBatchDual(info.batch),
       );
 
-      const { fulfilled: retryFulfilled, rejected: retryRejected } =
-        partitionResults(retrySettled);
-
-      fulfilled.push(...retryFulfilled);
-
-      if (retryRejected.length === 0) {
-        break; // all retried batches succeeded
+      const retryRejected: Array<{ index: number; reason: unknown }> = [];
+      for (let i = 0; i < retrySettled.length; i++) {
+        const result = retrySettled[i];
+        if (result.status === "fulfilled") {
+          fulfilled.push(result.value);
+        } else {
+          // Use stored batchIndex, not result index
+          retryRejected.push({
+            index: failedBatchInfos[i].batchIndex,
+            reason: result.reason,
+          });
+        }
       }
 
-      // Still failing after retry — update to only the still-failed ones
-      failedBatches = retryRejected.map((r) => batches[r.index]);
+      if (retryRejected.length === 0) {
+        break;
+      }
+
+      // Rebuild failedBatchInfos with original batchIndex
+      failedBatchInfos = retryRejected.map((r) => ({
+        batchIndex: r.index,
+        batch: batches[r.index],
+      }));
     }
   }
 
