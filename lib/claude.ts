@@ -13,8 +13,34 @@ const DEEPSEEK_MODEL = "deepseek-chat";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite";
 const TRANSLATION_BATCH_SIZE = 50;
+const RETRY_BATCH_SIZE = 25;
 const MAX_CONCURRENT_TRANSLATION_BATCHES = 5;
+const MAX_RETRIES = 3;
 const MERGE_BATCH_SIZE = 150;
+
+// Key rotation pool: only include keys that are actually configured
+function getConfiguredKeyPool(): KeyType[] {
+  const pool: KeyType[] = [];
+
+  // Gemini keys
+  if (process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY) {
+    pool.push("gemini1");
+  }
+  if (process.env.GEMINI_API_KEY_2) {
+    pool.push("gemini2");
+  }
+
+  // DeepSeek keys
+  if (process.env.DEEPSEEK_API_KEY_1 || process.env.DEEPSEEK_API_KEY) {
+    pool.push("deepseek1");
+  }
+  if (process.env.DEEPSEEK_API_KEY_2) {
+    pool.push("deepseek2");
+  }
+
+  // Fallback: if no keys configured, return empty (will error later)
+  return pool.length > 0 ? pool : ["gemini1" as KeyType]; // dummy to avoid empty
+}
 
 export class ClaudeApiError extends Error {
   status: number;
@@ -26,26 +52,32 @@ export class ClaudeApiError extends Error {
   }
 }
 
-let deepseekClient: OpenAI | null = null;
+// DeepSeek clients cache (one per key)
+const deepseekClients: Partial<Record<string, OpenAI>> = {};
 
-function getDeepSeekClient(): OpenAI {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+function getDeepSeekClient(keyIndex: number): OpenAI {
+  // Support both old single-key and new multi-key format
+  const cacheKey = `ds${keyIndex}`;
+  if (!deepseekClients[cacheKey]) {
+    const apiKey =
+      keyIndex === 1
+        ? process.env.DEEPSEEK_API_KEY_1 ?? process.env.DEEPSEEK_API_KEY
+        : process.env.DEEPSEEK_API_KEY_2;
 
-  if (!apiKey) {
-    throw new ClaudeApiError(
-      "DEEPSEEK_API_KEY is not configured in the environment.",
-      500,
-    );
-  }
+    if (!apiKey) {
+      throw new ClaudeApiError(
+        `DEEPSEEK_API_KEY_${keyIndex} is not configured in the environment.`,
+        500,
+      );
+    }
 
-  if (!deepseekClient) {
-    deepseekClient = new OpenAI({
+    deepseekClients[cacheKey] = new OpenAI({
       apiKey,
       baseURL: DEEPSEEK_BASE_URL,
     });
   }
 
-  return deepseekClient;
+  return deepseekClients[cacheKey]!;
 }
 
 export type RawSubtitleInput = {
@@ -59,7 +91,7 @@ export async function mergeSubtitlesWithLLM(
 ): Promise<RawSubtitleInput[]> {
   if (!subtitles.length) return [];
 
-  const client = getDeepSeekClient();
+  const client = getDeepSeekClient(1);
   const merged: RawSubtitleInput[] = [];
 
   for (let i = 0; i < subtitles.length; i += MERGE_BATCH_SIZE) {
@@ -124,11 +156,9 @@ export function buildTranslationBatches(
 export function parseTranslationResponse(content: string): TranslationResult[] {
   let parsed: unknown;
 
-  // Try direct parse first (handles pure JSON responses from Gemini with responseMimeType)
   try {
     parsed = JSON.parse(content.trim());
   } catch {
-    // Fall back to extracting a JSON array from markdown-wrapped or mixed content
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       throw new ClaudeApiError(
@@ -184,16 +214,6 @@ export function parseTranslationResponse(content: string): TranslationResult[] {
   });
 }
 
-function getTranslationProvider(): "deepseek" | "gemini" {
-  const configured = process.env.TRANSLATION_PROVIDER?.toLowerCase();
-
-  if (configured === "gemini" || configured === "deepseek") {
-    return configured;
-  }
-
-  return process.env.GEMINI_API_KEY ? "gemini" : "deepseek";
-}
-
 function getGeminiResponseText(payload: unknown): string {
   if (typeof payload !== "object" || payload === null) {
     return "";
@@ -214,17 +234,34 @@ function getGeminiResponseText(payload: unknown): string {
     .join("") ?? "";
 }
 
-async function translateBatchWithGemini(
-  subtitles: TranslationInputSubtitle[],
-): Promise<TranslationResult[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
-
+function getGeminiApiKey(keyIndex: number): string {
+  // Support both old single-key and new multi-key format
+  if (keyIndex === 1) {
+    const apiKey =
+      process.env.GEMINI_API_KEY_1 ?? process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new ClaudeApiError(
+        "GEMINI_API_KEY_1 is not configured in the environment.",
+        500,
+      );
+    }
+    return apiKey;
+  }
+  const apiKey = process.env.GEMINI_API_KEY_2;
   if (!apiKey) {
     throw new ClaudeApiError(
-      "GEMINI_API_KEY is not configured in the environment.",
+      `GEMINI_API_KEY_2 is not configured in the environment.`,
       500,
     );
   }
+  return apiKey;
+}
+
+async function translateBatchWithGemini(
+  subtitles: TranslationInputSubtitle[],
+  keyIndex: number,
+): Promise<TranslationResult[]> {
+  const apiKey = getGeminiApiKey(keyIndex);
 
   const model = process.env.GEMINI_MODEL ?? GEMINI_DEFAULT_MODEL;
   const baseUrl = (process.env.GEMINI_BASE_URL ?? GEMINI_BASE_URL).replace(/\/$/, "");
@@ -280,8 +317,9 @@ ${JSON.stringify(subtitles)}`,
 
 async function translateBatchWithDeepSeek(
   subtitles: TranslationInputSubtitle[],
+  keyIndex: number,
 ): Promise<TranslationResult[]> {
-  const client = getDeepSeekClient();
+  const client = getDeepSeekClient(keyIndex);
   const completion = await client.chat.completions.create({
     model: DEEPSEEK_MODEL,
     max_tokens: 4096,
@@ -309,21 +347,18 @@ async function translateBatchWithDeepSeek(
   return parseTranslationResponse(textContent);
 }
 
-async function translateBatchDual(
+async function translateBatchWithKey(
   batch: TranslationInputSubtitle[],
+  key: KeyType,
 ): Promise<TranslationResult[]> {
-  const geminiTask = translateBatchWithGemini(batch);
-  const deepseekTask = translateBatchWithDeepSeek(batch);
-
-  try {
-    return await Promise.race([geminiTask, deepseekTask]);
-  } catch (firstError) {
-    const results = await Promise.allSettled([geminiTask, deepseekTask]);
-    const success = results.find((r) => r.status === "fulfilled");
-    if (success && success.status === "fulfilled") {
-      return success.value;
-    }
-    throw firstError;
+  if (key === "gemini1") {
+    return translateBatchWithGemini(batch, 1);
+  } else if (key === "gemini2") {
+    return translateBatchWithGemini(batch, 2);
+  } else if (key === "deepseek1") {
+    return translateBatchWithDeepSeek(batch, 1);
+  } else {
+    return translateBatchWithDeepSeek(batch, 2);
   }
 }
 
@@ -334,66 +369,72 @@ export async function translateWithClaude(
     throw new ClaudeApiError("No subtitles were provided for translation.", 400);
   }
 
-  const batches = buildTranslationBatches(subtitles);
+  const allResults: TranslationResult[] = [];
+  const successfulIds = new Set<string>();
 
-  // First attempt: process all batches concurrently with dual providers
-  const settled = await mapWithConcurrency(
-    batches,
-    MAX_CONCURRENT_TRANSLATION_BATCHES,
-    (batch) => translateBatchDual(batch),
-  );
+  // Get configured key pool dynamically
+  const keyPool = getConfiguredKeyPool();
 
-  const { fulfilled, rejected } = partitionResults(settled);
+  // Track remaining subtitle IDs that need translation
+  let remainingIds = new Set(subtitles.map((s) => s.id));
 
-  // All batches failed — propagate error
-  if (rejected.length > 0 && fulfilled.length === 0) {
-    throw rejected[0].reason;
-  }
+  // First pass: process all batches with key rotation
+  for (let retryCount = 0; retryCount < MAX_RETRIES; retryCount++) {
+    if (remainingIds.size === 0) break;
 
-  // Some batches failed — retry failed ones (up to 3 attempts)
-  if (rejected.length > 0) {
-    const MAX_RETRIES = 3;
-    // Fix index bug: track original batch index with { batchIndex, batch }
-    let failedBatchInfos: Array<{ batchIndex: number; batch: TranslationInputSubtitle[] }> =
-      rejected.map((r) => ({
-        batchIndex: r.index,
-        batch: batches[r.index],
-      }));
+    // Build batches only for remaining subtitle IDs
+    const remainingSubtitles = subtitles.filter((s) => remainingIds.has(s.id));
+    const batchSize = retryCount === 0 ? TRANSLATION_BATCH_SIZE : RETRY_BATCH_SIZE;
+    const currentBatches = buildTranslationBatches(remainingSubtitles, batchSize);
 
-    for (let attempt = 1; attempt <= MAX_RETRIES && failedBatchInfos.length > 0; attempt++) {
-      const retrySettled = await mapWithConcurrency(
-        failedBatchInfos,
-        MAX_CONCURRENT_TRANSLATION_BATCHES,
-        (info) => translateBatchDual(info.batch),
-      );
+    // Assign keys in round-robin across configured keys
+    const batchesWithKeys = currentBatches.map((batch, index) => ({
+      batch,
+      key: keyPool[index % keyPool.length],
+    }));
 
-      const retryRejected: Array<{ index: number; reason: unknown }> = [];
-      for (let i = 0; i < retrySettled.length; i++) {
-        const result = retrySettled[i];
-        if (result.status === "fulfilled") {
-          fulfilled.push(result.value);
-        } else {
-          // Use stored batchIndex, not result index
-          retryRejected.push({
-            index: failedBatchInfos[i].batchIndex,
-            reason: result.reason,
-          });
+    // Process concurrently
+    const settled = await mapWithConcurrency(
+      batchesWithKeys,
+      MAX_CONCURRENT_TRANSLATION_BATCHES,
+      (item) => translateBatchWithKey(item.batch, item.key),
+    );
+
+    const { fulfilled, rejected } = partitionResults(settled);
+
+    // Collect successful results
+    for (const result of fulfilled) {
+      for (const r of result) {
+        if (!successfulIds.has(r.id)) {
+          allResults.push(r);
+          successfulIds.add(r.id);
         }
       }
-
-      if (retryRejected.length === 0) {
-        break;
-      }
-
-      // Rebuild failedBatchInfos with original batchIndex
-      failedBatchInfos = retryRejected.map((r) => ({
-        batchIndex: r.index,
-        batch: batches[r.index],
-      }));
     }
+
+    // Collect failed subtitle IDs
+    const failedIds = new Set<string>();
+    for (const result of rejected) {
+      const failedBatch = batchesWithKeys[result.index].batch;
+      for (const subtitle of failedBatch) {
+        failedIds.add(subtitle.id);
+      }
+    }
+
+    // If no failures, we're done
+    if (failedIds.size === 0) break;
+
+    // Update remaining for retry (only include IDs that failed and haven't succeeded)
+    remainingIds = new Set(
+      Array.from(failedIds).filter((id) => !successfulIds.has(id)),
+    );
+
+    // If nothing new to retry, break
+    if (remainingIds.size === 0) break;
   }
 
-  return fulfilled.flat();
+  // All retries exhausted - return partial results (allow partial success)
+  return allResults;
 }
 
 export function applyTranslationsToNotebook(
@@ -423,7 +464,7 @@ export async function summarizeWithClaude(
     throw new ClaudeApiError("No subtitles provided for summarization.", 400);
   }
 
-  const client = getDeepSeekClient();
+  const client = getDeepSeekClient(1);
 
   const transcriptText = subtitles
     .map((s) => `[${s.id}] ${s.text}`)
