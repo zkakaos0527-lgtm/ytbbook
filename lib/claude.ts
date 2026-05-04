@@ -8,6 +8,8 @@ import type {
   TranslationResult,
 } from "@/types";
 
+type KeyType = "gemini1" | "gemini2" | "deepseek1" | "deepseek2";
+
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_MODEL = "deepseek-chat";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
