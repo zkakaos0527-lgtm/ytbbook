@@ -10,7 +10,6 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 import { applyTranslationsToNotebook } from "@/lib/claude";
 import { mapWithConcurrency, partitionResults, withTimeoutFallback } from "@/lib/async";
 import { formatDuration } from "@/lib/format";
-import { notebookDetailMock } from "@/lib/mock-data";
 import { buildTranslationRequestBatches } from "@/lib/translation";
 import { createNotebookDraftFromTranscript } from "@/lib/workspace";
 import type {
@@ -54,7 +53,7 @@ export function NotebookWorkspace() {
   const [activeTab, setActiveTab] = useState<"summary" | "export">("summary");
   const [failedSubtitles, setFailedSubtitles] = useState<TranslationInputSubtitle[] | null>(null);
 
-  const activeNotebook = notebook ?? notebookDetailMock;
+  const activeNotebook = notebook!;
   const isLoading = loadingPhase !== "idle";
 
   async function fetchMergedSubtitles(
@@ -406,6 +405,7 @@ export function NotebookWorkspace() {
       )}
 
       {/* Two-column layout */}
+      {notebook && (
       <div
         style={{
           display: "grid",
@@ -425,9 +425,9 @@ export function NotebookWorkspace() {
           }}
         >
           <VideoPlayer
-            title={activeNotebook.videoTitle}
-            thumbnailUrl={activeNotebook.thumbnailUrl}
-            youtubeUrl={activeNotebook.youtubeUrl}
+            title={activeNotebook!.videoTitle}
+            thumbnailUrl={activeNotebook!.thumbnailUrl}
+            youtubeUrl={activeNotebook!.youtubeUrl}
           />
 
           {/* Video meta */}
@@ -540,13 +540,14 @@ export function NotebookWorkspace() {
 
         {/* Right panel: transcript */}
         <TranscriptPanel
-          notebook={activeNotebook}
-          subtitles={activeNotebook.subtitles}
+          notebook={activeNotebook!}
+          subtitles={activeNotebook!.subtitles}
           status={transcriptStatus}
           translationProgress={translationProgress}
           onNoteChange={handleNoteChange}
         />
-      </div>
+        </div>
+      )}
     </div>
   );
 }

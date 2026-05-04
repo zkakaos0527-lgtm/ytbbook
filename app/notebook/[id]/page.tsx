@@ -2,8 +2,9 @@ import { ExportPanel } from "@/components/ExportPanel";
 import { SummaryPanel } from "@/components/SummaryPanel";
 import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { VideoPlayer } from "@/components/VideoPlayer";
-import { notebookDetailMock } from "@/lib/mock-data";
 import { formatDuration } from "@/lib/format";
+import { getNotebook } from "@/lib/supabase";
+import { notFound } from "next/navigation";
 
 type NotebookDetailPageProps = {
   params: Promise<{ id: string }>;
@@ -13,7 +14,11 @@ export default async function NotebookDetailPage({
   params,
 }: NotebookDetailPageProps) {
   const { id } = await params;
-  const notebook = { ...notebookDetailMock, id };
+  const notebook = await getNotebook(id);
+
+  if (!notebook) {
+    notFound();
+  }
 
   return (
     <main

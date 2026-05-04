@@ -1,24 +1,18 @@
 import Link from "next/link";
 
 import { NotebookWorkspace } from "@/components/NotebookWorkspace";
-import { dashboardNotebookCards } from "@/lib/mock-data";
 import { listNotebookCards } from "@/lib/supabase";
-import { formatDuration, formatNotebookDate } from "@/lib/format";
+import { formatNotebookDate } from "@/lib/format";
 import type { DashboardNotebookCard } from "@/types";
 
 export default async function Home() {
   let cards: DashboardNotebookCard[] = [];
-  let useMock = false;
+  let error = false;
 
   try {
     cards = await listNotebookCards();
-    if (cards.length === 0) {
-      cards = dashboardNotebookCards;
-      useMock = true;
-    }
   } catch {
-    cards = dashboardNotebookCards;
-    useMock = true;
+    error = true;
   }
   return (
     <main
@@ -67,22 +61,6 @@ export default async function Home() {
             notebook.
           </span>
         </div>
-        <button
-          type="button"
-          style={{
-            padding: "8px 20px",
-            background: "var(--primary)",
-            color: "#fff",
-            border: "none",
-            borderRadius: 24,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-            boxShadow: "0 4px 16px rgba(105,88,242,0.3)",
-          }}
-        >
-          ＋ 新建笔记
-        </button>
       </div>
 
       {/* Workspace */}
@@ -102,151 +80,155 @@ export default async function Home() {
             style={{ fontSize: 17, fontWeight: 700, color: "var(--text-1)" }}
           >
             最近笔记
-            {useMock && (
-              <span
-                style={{
-                  marginLeft: 8,
-                  fontSize: 11,
-                  padding: "2px 8px",
-                  background: "var(--orange-bg)",
-                  color: "var(--orange)",
-                  borderRadius: 10,
-                  fontWeight: 500,
-                  verticalAlign: "middle",
-                }}
-              >
-                示例数据
-              </span>
-            )}
           </h2>
-          <button
-            type="button"
+        </div>
+
+        {error ? (
+          <div
             style={{
-              padding: "4px 12px",
+              padding: "24px",
               background: "var(--bg-card)",
               border: "1px solid var(--border)",
-              borderRadius: 6,
-              fontSize: 11,
-              color: "var(--text-2)",
-              cursor: "pointer",
+              borderRadius: 12,
+              textAlign: "center",
+              color: "var(--text-3)",
+              fontSize: 14,
             }}
           >
-            VIEW ALL
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 16,
-          }}
-        >
-          {cards.map((nb) => (
-            <Link
-              key={nb.id}
-              href={`/notebook/${nb.id}`}
-              style={{ textDecoration: "none" }}
-            >
-              <div
-                className="card-hover"
-                style={{
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border-light)",
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  boxShadow: "var(--shadow-sm)",
-                  cursor: "pointer",
-                }}
+            无法加载笔记数据，请检查网络连接
+          </div>
+        ) : cards.length === 0 ? (
+          <div
+            style={{
+              padding: "40px 24px",
+              background: "var(--bg-card)",
+              border: "1px dashed var(--border)",
+              borderRadius: 12,
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
+            <p style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)", marginBottom: 6 }}>
+              开始你的第一份视频笔记
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-3)" }}>
+              在上方输入 YouTube 链接，即可生成带翻译和摘要的学习笔记
+            </p>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 16,
+            }}
+          >
+            {cards.map((nb) => (
+              <Link
+                key={nb.id}
+                href={`/notebook/${nb.id}`}
+                style={{ textDecoration: "none" }}
               >
-                {/* Card top: gradient bg */}
                 <div
+                  className="card-hover"
                   style={{
-                    height: 100,
-                    background:
-                      "linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)",
-                    padding: "12px 14px",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border-light)",
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    boxShadow: "var(--shadow-sm)",
+                    cursor: "pointer",
                   }}
                 >
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <span
-                      style={{
-                        padding: "3px 8px",
-                        background: "rgba(255,255,255,0.2)",
-                        borderRadius: 20,
-                        fontSize: 11,
-                        color: "#fff",
-                      }}
-                    >
-                      📝 {nb.noteCount} 笔记
-                    </span>
-                    <span
-                      style={{
-                        padding: "3px 8px",
-                        background: "rgba(255,255,255,0.2)",
-                        borderRadius: 20,
-                        fontSize: 11,
-                        color: "#fff",
-                      }}
-                    >
-                      💬 {nb.subtitleCount} 条
-                    </span>
-                  </div>
-                  <div>
-                    <p
-                      style={{
-                        fontSize: 9,
-                        color: "rgba(255,255,255,0.7)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.1em",
-                        marginBottom: 3,
-                      }}
-                    >
-                      NOTEBOOK
-                    </p>
-                    <p
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: "#fff",
-                        lineHeight: 1.3,
-                        overflow: "hidden",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                      }}
-                    >
-                      {nb.videoTitle}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Card bottom */}
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-                    {nb.channelName}
-                  </span>
-                  <span
-                    className="font-mono"
-                    style={{ fontSize: 11, color: "var(--text-4)" }}
+                  {/* Card top: gradient bg */}
+                  <div
+                    style={{
+                      height: 100,
+                      background:
+                        "linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)",
+                      padding: "12px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                    }}
                   >
-                    {formatNotebookDate(nb.createdAt)}
-                  </span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <span
+                        style={{
+                          padding: "3px 8px",
+                          background: "rgba(255,255,255,0.2)",
+                          borderRadius: 20,
+                          fontSize: 11,
+                          color: "#fff",
+                        }}
+                      >
+                        📝 {nb.noteCount} 笔记
+                      </span>
+                      <span
+                        style={{
+                          padding: "3px 8px",
+                          background: "rgba(255,255,255,0.2)",
+                          borderRadius: 20,
+                          fontSize: 11,
+                          color: "#fff",
+                        }}
+                      >
+                        💬 {nb.subtitleCount} 条
+                      </span>
+                    </div>
+                    <div>
+                      <p
+                        style={{
+                          fontSize: 9,
+                          color: "rgba(255,255,255,0.7)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.1em",
+                          marginBottom: 3,
+                        }}
+                      >
+                        NOTEBOOK
+                      </p>
+                      <p
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "#fff",
+                          lineHeight: 1.3,
+                          overflow: "hidden",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                        }}
+                      >
+                        {nb.videoTitle}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Card bottom */}
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+                      {nb.channelName}
+                    </span>
+                    <span
+                      className="font-mono"
+                      style={{ fontSize: 11, color: "var(--text-4)" }}
+                    >
+                      {formatNotebookDate(nb.createdAt)}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
