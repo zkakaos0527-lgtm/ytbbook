@@ -102,7 +102,7 @@ export function SubtitleItem({
       }}
       onMouseEnter={(e) => {
         if (!expanded) {
-          (e.currentTarget as HTMLDivElement).style.background = "var(--primary-lighter)";
+          (e.currentTarget as HTMLDivElement).style.background = "var(--primary-light)";
         }
       }}
       onMouseLeave={(e) => {

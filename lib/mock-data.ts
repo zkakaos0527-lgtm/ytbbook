@@ -10,6 +10,8 @@ export const dashboardNotebookCards: DashboardNotebookCard[] = [
     noteCount: 13,
     createdAt: "2026-05-01T14:00:00.000Z",
     thumbnailUrl: "",
+    summary: "把长视频拆成可检索的字幕单元，再叠加中文翻译和个人注释，学习内容才能真正进入长期知识系统。",
+    tags: ["技术", "AI"],
   },
   {
     id: "ai-agent-system",
@@ -20,6 +22,8 @@ export const dashboardNotebookCards: DashboardNotebookCard[] = [
     noteCount: 22,
     createdAt: "2026-04-28T09:30:00.000Z",
     thumbnailUrl: "",
+    summary: "AI Agent 的核心能力在于持久化上下文管理和可检索的知识沉淀系统。",
+    tags: ["AI", "产品"],
   },
   {
     id: "ux-research-memo",
@@ -30,6 +34,8 @@ export const dashboardNotebookCards: DashboardNotebookCard[] = [
     noteCount: 9,
     createdAt: "2026-04-22T18:15:00.000Z",
     thumbnailUrl: "",
+    summary: "将视频研究内容转化为团队可搜索的知识库，需要结构化的标注和标签系统。",
+    tags: ["产品", "通识"],
   },
 ];
 
@@ -52,6 +58,7 @@ export const notebookDetailMock: Notebook = {
     "## 可操作启发",
     "- 先搭建稳定归档流程，再优化翻译与导出细节。",
   ].join("\n"),
+  tags: ["技术", "AI"],
   createdAt: "2026-05-01T14:00:00.000Z",
   updatedAt: "2026-05-01T16:20:00.000Z",
   subtitles: [

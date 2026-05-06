@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Sidebar } from "@/components/Sidebar";
 
 export const metadata: Metadata = {
   title: "Video Notebook",
@@ -21,7 +22,12 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-full flex flex-col antialiased">{children}</body>
+      <body className="min-h-full flex flex-col antialiased">
+        <Sidebar />
+        <div style={{ marginLeft: 56, flex: 1, display: "flex", flexDirection: "column" }}>
+          {children}
+        </div>
+      </body>
     </html>
   );
 }

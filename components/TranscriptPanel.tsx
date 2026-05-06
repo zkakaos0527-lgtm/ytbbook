@@ -125,7 +125,7 @@ export function TranscriptPanel({
             minWidth: 120,
             height: 30,
             padding: "0 10px",
-            background: "var(--bg-input)",
+            background: "var(--bg-inner)",
             border: "1px solid var(--border)",
             borderRadius: 6,
             fontSize: 12,
@@ -247,7 +247,7 @@ export function TranscriptPanel({
               width: "100%",
               overflow: "hidden",
               borderRadius: 999,
-              background: "var(--bg-input)",
+              background: "var(--bg-inner)",
               border: "1px solid var(--border-light)",
             }}
           >

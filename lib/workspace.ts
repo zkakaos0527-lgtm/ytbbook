@@ -29,6 +29,7 @@ export function createNotebookDraftFromTranscript({
     targetLanguage: "zh",
     summary:
       "Step 5 会在这里生成结构化中文摘要。当前阶段先打通视频信息与字幕展示。",
+    tags: [],
     createdAt: now,
     updatedAt: now,
     subtitles: transcript.subtitles.map((subtitle, index) => ({

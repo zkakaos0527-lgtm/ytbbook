@@ -79,13 +79,14 @@ export function URLInput({
               height: 40,
               paddingLeft: 34,
               paddingRight: 12,
-              background: "var(--bg-input)",
+              background: "var(--bg-card)",
               border: "1px solid var(--border)",
               borderRadius: 8,
               fontSize: 14,
               color: "var(--text-1)",
               outline: "none",
               transition: "border-color 0.15s",
+              boxShadow: "var(--shadow-card)",
             }}
             onFocus={(e) => (e.target.style.borderColor = "var(--primary)")}
             onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
@@ -105,13 +106,17 @@ export function URLInput({
             fontWeight: 600,
             cursor: isLoading ? "not-allowed" : "pointer",
             whiteSpace: "nowrap",
-            boxShadow: isLoading
-              ? "none"
-              : "0 4px 16px rgba(105,88,242,0.3)",
+            boxShadow: isLoading ? "none" : "0 4px 16px rgba(45,156,219,0.3)",
             transition: "all 0.15s",
             display: "flex",
             alignItems: "center",
             gap: 8,
+          }}
+          onMouseEnter={(e) => {
+            if (!isLoading) (e.currentTarget as HTMLButtonElement).style.background = "var(--primary-dark)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = isLoading ? "var(--text-4)" : "var(--primary)";
           }}
         >
           {isLoading && <span className="spinner" style={{ width: 14, height: 14 }} />}

@@ -47,7 +47,7 @@ export function VideoPlayer({ title, thumbnailUrl, youtubeUrl }: VideoPlayerProp
             style={{
               width: 48,
               height: 48,
-              background: "rgba(105,88,242,0.85)",
+              background: "rgba(45,156,219,0.85)",
               borderRadius: "50%",
               display: "flex",
               alignItems: "center",

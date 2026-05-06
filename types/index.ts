@@ -20,6 +20,7 @@ export type Notebook = {
   sourceLanguage: string;
   targetLanguage: string;
   summary: string;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
   subtitles: Subtitle[];
@@ -34,6 +35,8 @@ export type DashboardNotebookCard = {
   noteCount: number;
   createdAt: string;
   thumbnailUrl: string;
+  summary: string;
+  tags: string[];
 };
 
 export type TranscriptApiSubtitle = {

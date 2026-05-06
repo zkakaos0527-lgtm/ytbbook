@@ -1,26 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --bg:              #f2f1f6;
+  --bg:              #e8edf2;
+  --bg-inner:        #f0f3f7;
   --bg-card:         #ffffff;
-  --bg-input:        #f5f4f9;
-  --primary:         #6958f2;
-  --primary-light:   #eae7ff;
-  --primary-lighter: #f5f3ff;
-  --primary-dark:    #5346d4;
-  --text-1:          #1e1e2e;
-  --text-2:          #5c5b6f;
-  --text-3:          #9e9daf;
-  --text-4:          #c4c3d2;
-  --border:          #e8e7ee;
-  --border-light:    #f0eff5;
-  --green:           #34c77b;
-  --green-bg:        #e8faf0;
-  --orange:          #f5a623;
-  --orange-bg:       #fef5e7;
-  --shadow-sm:       0 1px 3px rgba(105, 88, 242, 0.06);
-  --shadow-md:       0 4px 16px rgba(105, 88, 242, 0.08);
-  --shadow-lg:       0 8px 32px rgba(105, 88, 242, 0.1);
+  --text-1:          #1a1d24;
+  --text-2:          #4a4f5c;
+  --text-3:          #8b919e;
+  --text-4:          #b8bcc6;
+  --primary:         #2d9cdb;
+  --primary-light:   #e3f2fd;
+  --primary-dark:    #1a7ab5;
+  --border:          #e2e6ec;
+  --border-light:    #edf0f4;
+  --green:           #27ae60;
+  --green-bg:        #e8f5e9;
+  --orange:          #f2994a;
+  --orange-bg:       #fff3e0;
+  --pink:            #eb5757;
+  --pink-bg:         #fce4ec;
+  --shadow-card:     0 1px 4px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.03);
+  --shadow-hover:    0 4px 20px rgba(0,0,0,0.08), 0 8px 32px rgba(0,0,0,0.04);
 }
 
 @theme inline {
@@ -63,20 +63,119 @@ textarea {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 4px;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  width: 12px;
-  height: 12px;
   background: var(--text-4);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Notebook sidebar */
+.notebook-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 56px;
+  background: var(--bg-inner);
+  border-radius: 0 16px 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+  gap: 4px;
+  z-index: 100;
+}
+
+.sidebar-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-bottom: 8px;
+}
+.sidebar-logo:hover {
+  opacity: 0.85;
+}
+
+.sidebar-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+}
+.sidebar-icon:hover {
+  background: var(--bg-card);
+  color: var(--text-1);
+}
+.sidebar-icon.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.sidebar-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-top: auto;
+  cursor: pointer;
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+/* Notebook card */
+.notebook-card {
+  background: var(--bg-card);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.tag-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .font-serif {
@@ -89,11 +188,11 @@ textarea {
 
 /* Card hover */
 .card-hover {
-  transition: all 0.15s;
+  transition: all 0.25s ease;
 }
 .card-hover:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-3px);
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-4px);
   border-color: var(--primary) !important;
 }
 

@@ -32,6 +32,7 @@ type NotebookRow = {
   source_language: string;
   target_language: string;
   summary: string;
+  tags: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -61,6 +62,7 @@ function rowToNotebook(row: NotebookRow, subtitleRows: SubtitleRow[]): Notebook 
     sourceLanguage: row.source_language,
     targetLanguage: row.target_language,
     summary: row.summary,
+    tags: row.tags ?? [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     subtitles: subtitleRows.map(rowToSubtitle),
@@ -96,6 +98,7 @@ export async function saveNotebook(notebook: Notebook): Promise<void> {
     source_language: notebook.sourceLanguage,
     target_language: notebook.targetLanguage,
     summary: notebook.summary,
+    tags: notebook.tags ?? [],
     created_at: notebook.createdAt,
     updated_at: notebook.updatedAt,
   });
@@ -228,6 +231,8 @@ export async function listNotebookCards(): Promise<DashboardNotebookCard[]> {
       subtitleCount: counts.subtitleCount,
       noteCount: counts.noteCount,
       createdAt: row.created_at,
+      summary: row.summary ?? "",
+      tags: row.tags ?? [],
     };
   });
 }

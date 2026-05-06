@@ -36,7 +36,7 @@ export function ExportPanel({ notebook }: ExportPanelProps) {
   const subtitleCount = notebook.subtitles.length;
 
   function labelFor(state: CopyState, idle: string) {
-    if (state === "copied") return "✓ 已复制";
+    if (state === "copied") return "✅ 已复制";
     if (state === "error") return "复制失败";
     return idle;
   }
@@ -55,7 +55,7 @@ export function ExportPanel({ notebook }: ExportPanelProps) {
           display: "flex",
           gap: 12,
           padding: "8px 12px",
-          background: "var(--primary-lighter)",
+          background: "var(--primary-light)",
           borderRadius: 8,
           marginBottom: 4,
         }}
@@ -186,7 +186,14 @@ export function ExportPanel({ notebook }: ExportPanelProps) {
             导出为 PDF 文件
           </p>
         </div>
-        <span className="font-mono" style={{ fontSize: 11, color: "var(--text-4)" }}>
+        <span className="font-mono" style={{
+            fontSize: 11,
+            color: "var(--text-4)",
+            padding: "2px 8px",
+            background: "var(--bg-inner)",
+            border: "1px solid var(--border-light)",
+            borderRadius: 4,
+          }}>
           Soon
         </span>
       </button>
@@ -217,7 +224,14 @@ export function ExportPanel({ notebook }: ExportPanelProps) {
             同步到 Notion 页面
           </p>
         </div>
-        <span className="font-mono" style={{ fontSize: 11, color: "var(--text-4)" }}>
+        <span className="font-mono" style={{
+            fontSize: 11,
+            color: "var(--text-4)",
+            padding: "2px 8px",
+            background: "var(--bg-inner)",
+            border: "1px solid var(--border-light)",
+            borderRadius: 4,
+          }}>
           Soon
         </span>
       </button>
