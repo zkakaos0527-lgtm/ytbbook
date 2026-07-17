@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { NotebookWorkspace } from "@/components/NotebookWorkspace";
 import { formatNotebookDate } from "@/lib/format";
 import type { DashboardNotebookCard } from "@/types";
@@ -30,9 +30,26 @@ type HomeClientProps = {
 
 function NotebookCard({ card }: { card: DashboardNotebookCard }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
+
+  function openNotebook() {
+    router.push(`/notebook/${encodeURIComponent(card.id)}`);
+  }
 
   return (
-    <div className="notebook-card" style={{ position: "relative" }}>
+    <article
+      className="notebook-card"
+      onClick={openNotebook}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openNotebook();
+        }
+      }}
+      role="link"
+      tabIndex={0}
+      style={{ position: "relative" }}
+    >
       {/* Thumbnail */}
       <div style={{ position: "relative", aspectRatio: "16/10", overflow: "hidden", background: "linear-gradient(135deg, #e8edf4, #dce3ed)" }}>
         {card.thumbnailUrl ? (
@@ -52,8 +69,9 @@ function NotebookCard({ card }: { card: DashboardNotebookCard }) {
         {/* Three-dot menu */}
         <button
           type="button"
+          aria-expanded={menuOpen}
+          aria-label="打开笔记菜单"
           onClick={(e) => {
-            e.preventDefault();
             e.stopPropagation();
             setMenuOpen((v) => !v);
           }}
@@ -150,7 +168,7 @@ function NotebookCard({ card }: { card: DashboardNotebookCard }) {
           <span style={{ fontSize: 11, color: "var(--text-3)" }}>📝 {card.noteCount}</span>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -292,13 +310,7 @@ export function HomeClient({ cards, error }: HomeClientProps) {
             }}
           >
             {filteredCards.map((card) => (
-              <Link
-                key={card.id}
-                href={`/notebook/${card.id}`}
-                style={{ textDecoration: "none" }}
-              >
-                <NotebookCard card={card} />
-              </Link>
+              <NotebookCard key={card.id} card={card} />
             ))}
           </div>
         )}

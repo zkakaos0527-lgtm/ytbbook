@@ -14,10 +14,6 @@ export function NoteEditor({ note, onSave }: NoteEditorProps) {
   const [value, setValue] = useState(note ?? "");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    setValue(note ?? "");
-  }, [note]);
-
   function handleChange(next: string) {
     setValue(next);
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -152,6 +148,7 @@ export function SubtitleItem({
       {expanded && (
         <div onClick={(e) => e.stopPropagation()}>
           <NoteEditor
+            key={subtitle.userNote ?? ""}
             note={subtitle.userNote}
             onSave={(note) => onNoteChange?.(subtitle.id, note)}
           />
